@@ -15,6 +15,7 @@ from olympus.contracts import ExecutionType, SourceSystem, TraceMetadata
 from olympus.core.validation_contracts import (
     RecommendationCandidate,
     ValidationDomain,
+    evaluate_validation_gates,
     ValidationLifecycle,
     ValidationReport,
     ValidationStatus,
@@ -179,6 +180,15 @@ def _recommendation_for_domain(domain: ValidationDomain) -> str:
     return "Validation requires Zeus evidence and operator review before adoption."
 
 
+def _leakage_safe(domain: ValidationDomain, candidate: Dict[str, Any], leakage_checks: Optional[Dict[str, Any]]) -> bool:
+    if domain != ValidationDomain.FEATURE:
+        return True
+    checks = leakage_checks or {}
+    if "outcome_diagnostics_excluded" in checks:
+        return bool(checks.get("outcome_diagnostics_excluded"))
+    return bool(candidate.get("outcome_diagnostics_excluded", False))
+
+
 class ZeusValidationEngine:
     """Passive institutional validation engine facade.
 
@@ -208,6 +218,16 @@ class ZeusValidationEngine:
         origin = _origin(candidate, source, domain)
         evidence_score = round(max(0.0, min(1.0, ((float(confidence) if confidence else 0.0) + min(1.0, max(0, int(sample_size or 0)) / 200.0)) / 2.0)), 4)
         sample_text = f"Estimated edge impact derived from {max(0, int(sample_size or 0))} samples"
+        statistical_result = pipeline.get("Statistical Confidence", "Pending")
+        gate_evaluation = evaluate_validation_gates(
+            domain=domain,
+            sample_size=max(0, int(sample_size or 0)),
+            confidence=round(max(0.0, min(1.0, float(confidence))), 4),
+            evidence_score=evidence_score,
+            statistical_confidence_result=statistical_result,
+            leakage_safe=_leakage_safe(domain, candidate, leakage_checks),
+        )
+        thresholds = gate_evaluation["thresholds"]
         return ValidationReport(
             report_id=f"zeus-validation-{uuid.uuid4().hex[:10]}",
             validating_system=self.validating_system,
@@ -240,7 +260,7 @@ class ZeusValidationEngine:
             robustness_result=pipeline.get("Robustness", "Pending"),
             feature_validation_result=pipeline.get("Feature Validation", "N/A"),
             leakage_status=pipeline.get("Leakage Detection", "Pending"),
-            statistical_confidence_result=pipeline.get("Statistical Confidence", "Pending"),
+            statistical_confidence_result=statistical_result,
             execution_validation_result=pipeline.get("Execution Validation", "N/A"),
             capital_validation_result=pipeline.get("Capital Validation", "N/A"),
             operator_approval_status="Pending Operator Review",
@@ -249,6 +269,16 @@ class ZeusValidationEngine:
             mission="Institutional Validation Engine",
             submission_time=str(candidate.get("timestamp") or _utc_now()),
             priority=str(candidate.get("priority") or "Normal"),
+            minimum_sample_size_required=int(thresholds["minimum_sample_size"]),
+            minimum_adoption_sample_size_required=int(thresholds["minimum_adoption_sample_size"]),
+            minimum_evidence_score_required=float(thresholds["minimum_evidence_score"]),
+            minimum_confidence_required=float(thresholds["minimum_confidence"]),
+            required_statistical_confidence_status=str(thresholds["required_statistical_confidence_status"]),
+            leakage_safe_required=bool(thresholds["leakage_safe_required"]),
+            validation_gate_passed=bool(gate_evaluation["validation_gate_passed"]),
+            adoption_gate_passed=bool(gate_evaluation["adoption_gate_passed"]),
+            gate_blockers=list(gate_evaluation["gate_blockers"]),
+            gate_results=dict(gate_evaluation["gates"]),
         )
 
     def validate_recommendation(
@@ -345,6 +375,8 @@ def build_validation_status(reports: Iterable[ValidationReport]) -> Dict[str, An
     }
     evidence_scores: List[float] = []
     durations: List[int] = []
+    validation_gates_passed = 0
+    adoption_gates_passed = 0
     for row in rows:
         status = _enum_value(row.get("status", "unknown"))
         domain = _enum_value(row.get("domain", "unknown"))
@@ -356,6 +388,10 @@ def build_validation_status(reports: Iterable[ValidationReport]) -> Dict[str, An
             evidence_scores.append(float(row.get("evidence_score", 0.0) or 0.0))
         except Exception:
             pass
+        if bool(row.get("validation_gate_passed", False)):
+            validation_gates_passed += 1
+        if bool(row.get("adoption_gate_passed", False)):
+            adoption_gates_passed += 1
         timeline = row.get("timeline", []) or []
         if isinstance(timeline, list):
             durations.append(max(1, len([item for item in timeline if str((item or {}).get("status", "")).lower() == "completed"])))
@@ -395,6 +431,8 @@ def build_validation_status(reports: Iterable[ValidationReport]) -> Dict[str, An
             "research_throughput": round(len(rows) / max(1, len(durations)), 2),
             "average_evidence_score": round(sum(evidence_scores) / max(1, len(evidence_scores)), 4),
             "institutional_confidence": round(sum(float(row.get("confidence", 0.0) or 0.0) for row in rows) / max(1, len(rows)), 4),
+            "validation_gates_passed": validation_gates_passed,
+            "adoption_gates_passed": adoption_gates_passed,
         },
         "queue": {
             "items": rows,

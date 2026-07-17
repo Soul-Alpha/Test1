@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +49,10 @@ def test_zvo_dedupes_candidates_and_advances_lifecycle(tmp_path: Path) -> None:
     assert row["approved_for_adoption"] is True
     assert row["queue_state"] in ("Approved", "Completed")
     assert row["lifecycle"] in ("validated", "active", "completed")
+    assert row["validation_gate_passed"] is True
+    assert row["adoption_gate_passed"] is True
+    assert row["statistical_confidence_result"] == "Passed"
+    assert result["status"]["summary"]["adoption_gates_passed"] == 1
 
 
 def test_zvo_pauses_low_sample_candidates(tmp_path: Path) -> None:
@@ -64,3 +69,50 @@ def test_zvo_pauses_low_sample_candidates(tmp_path: Path) -> None:
     row = result["reports"][0]
     assert row["status"] == "inconclusive"
     assert row["queue_state"] == "Paused"
+    assert row["validation_gate_passed"] is False
+    assert row["adoption_gate_passed"] is False
+    assert "minimum_sample_size" in row["gate_blockers"]
+
+
+def test_zvo_backfills_gate_fields_for_legacy_runtime_rows(tmp_path: Path) -> None:
+    root = tmp_path
+    storage = root / "storage" / "olympus"
+    storage.mkdir(parents=True, exist_ok=True)
+    (storage / "zeus_validation_operations_runtime.json").write_text(
+        json.dumps(
+            {
+                "queue": {
+                    "items": [
+                        {
+                            "candidate_id": "legacy-001",
+                            "candidate_source_system": "hermes",
+                            "domain": "pattern",
+                            "status": "pending",
+                            "timestamp": "2026-07-01 00:00:00 UTC",
+                            "sample_size": 10,
+                            "confidence": 0.4,
+                            "evidence_score": 0.2,
+                            "validation_pipeline": {
+                                "Historical Validation": "Pending",
+                                "Walk Forward": "Pending",
+                                "Out-of-Sample": "Pending",
+                                "Monte Carlo": "Pending",
+                                "Robustness": "Pending",
+                                "Statistical Confidence": "Pending",
+                            },
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_zeus_validation_operations(root_dir=root, incoming_reports=[])
+    row = result["reports"][0]
+
+    assert row["minimum_sample_size_required"] == 20
+    assert row["minimum_adoption_sample_size_required"] == 120
+    assert row["validation_gate_passed"] is False
+    assert row["adoption_gate_passed"] is False
+    assert "gate_results" in row

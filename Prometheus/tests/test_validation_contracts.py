@@ -59,6 +59,13 @@ def test_zeus_recommendation_validation_is_passive_and_requires_approval():
     assert report.operator_approval_required is True
     assert report.approved_for_adoption is False
     assert report.lifecycle == ValidationLifecycle.ZEUS_VALIDATION
+    assert report.minimum_sample_size_required == 20
+    assert report.minimum_adoption_sample_size_required == 120
+    assert report.validation_gate_passed is False
+    assert report.adoption_gate_passed is False
+    assert "minimum_sample_size" in report.gate_blockers
+    assert "statistical_confidence" in report.gate_blockers
+    assert report.gate_results["minimum_confidence"]["passed"] is True
 
 
 def test_validation_status_never_implies_automatic_deployment():
@@ -75,3 +82,21 @@ def test_validation_status_never_implies_automatic_deployment():
     assert status["summary"]["total"] == 2
     assert status["summary"]["automatic_deployment"] is False
     assert status["summary"]["operator_approval_required"] == 2
+    assert "validation_gates_passed" in status["summary"]
+    assert "adoption_gates_passed" in status["summary"]
+
+
+def test_feature_validation_requires_leakage_safe_gate():
+    report = ZeusValidationEngine().validate_feature_candidate(
+        {
+            "candidate_id": "feat-001",
+            "validation_domain": "feature",
+            "outcome_diagnostics_excluded": False,
+        }
+    )
+
+    assert report.leakage_safe_required is True
+    assert report.validation_gate_passed is False
+    assert report.adoption_gate_passed is False
+    assert "leakage_safety" in report.gate_blockers
+    assert report.gate_results["leakage_safety"]["passed"] is False
