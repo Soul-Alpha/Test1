@@ -1,0 +1,62 @@
+# ============================================================
+# Prometheus - Institutional AI Market Analysis System
+# requirements.txt
+# ============================================================
+# Core
+pandas>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Technical analysis
+ta>=0.11.0
+
+# Machine learning
+scikit-learn>=1.3.0
+xgboost>=1.7.0
+lightgbm>=4.0.0
+joblib>=1.3.0
+
+# Computer vision
+opencv-python-headless>=4.8.0
+Pillow>=10.0.0
+
+# pytesseract is optional (OCR of price labels in chart images)
+# pytesseract>=0.3.10
+
+# Visualization
+matplotlib>=3.7.0
+mplfinance>=0.12.10b0
+plotly>=5.15.0
+
+# API layer
+fastapi>=0.103.0
+uvicorn[standard]>=0.23.0
+python-multipart>=0.0.6
+aiofiles>=23.0.0
+
+# UI layer
+streamlit>=1.27.0
+streamlit-autorefresh>=1.0.1
+gradio>=4.0.0
+
+# Database
+sqlalchemy>=2.0.0
+
+# Data connectivity (optional for live data)
+# ccxt>=4.0.0
+
+# Trading platform bridge (live execution on MT5 terminals)
+MetaTrader5>=5.0.45
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+httpx>=0.24.0
+
+# Deep learning (optional)
+# torch>=2.0.0
+# transformers>=4.30.0

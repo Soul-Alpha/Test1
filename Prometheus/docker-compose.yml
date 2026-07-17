@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+
+  # ── REST API ─────────────────────────────────────────────────────────────
+  api:
+    build: .
+    image: prometheus-ai:latest
+    container_name: prometheus-api
+    command: uvicorn api.server:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./outputs:/app/outputs
+      - ./storage:/app/storage
+      - ./charts:/app/charts
+    environment:
+      - PROMETHEUS_LOG_LEVEL=INFO
+      - PROMETHEUS_DATABASE_URL=sqlite:////app/storage/prometheus.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Streamlit UI ─────────────────────────────────────────────────────────
+  ui:
+    image: prometheus-ai:latest
+    container_name: prometheus-ui
+    command: streamlit run ui/dashboard.py --server.port 8501 --server.headless true
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./models:/app/models
+      - ./outputs:/app/outputs
+      - ./storage:/app/storage
+      - ./charts:/app/charts
+    environment:
+      - PROMETHEUS_LOG_LEVEL=INFO
+      - PROMETHEUS_DATABASE_URL=sqlite:////app/storage/prometheus.db
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
