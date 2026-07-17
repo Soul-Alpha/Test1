@@ -7,7 +7,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from olympus.core.validation_contracts import ValidationDomain, ValidationLifecycle, ValidationStatus, evaluate_validation_gates
+from olympus.core.validation_contracts import (
+    ValidationDomain,
+    ValidationLifecycle,
+    ValidationStatus,
+    evaluate_validation_gates,
+    validation_leakage_safe,
+)
 
 ZVO_VERSION = "zvo-v1.0"
 
@@ -198,11 +204,7 @@ def _sync_gate_fields(item: dict[str, Any]) -> dict[str, Any]:
         confidence=max(0.0, min(1.0, _safe_float(item.get("confidence")))),
         evidence_score=max(0.0, min(1.0, _safe_float(item.get("evidence_score")))),
         statistical_confidence_result=str(item.get("statistical_confidence_result") or "Pending"),
-        leakage_safe=bool(
-            (item.get("gate_results", {}) or {}).get("leakage_safety", {}).get("observed")
-            if domain == ValidationDomain.FEATURE and item.get("gate_results")
-            else (item.get("leakage_checks", {}) or {}).get("outcome_diagnostics_excluded", item.get("outcome_diagnostics_excluded", False))
-        ),
+        leakage_safe=validation_leakage_safe(domain=domain, payload=item, leakage_checks=item.get("leakage_checks")),
     )
     thresholds = evaluation["thresholds"]
     item["minimum_sample_size_required"] = int(thresholds["minimum_sample_size"])
@@ -225,7 +227,6 @@ def _advance_pipeline_step(item: dict[str, Any], now: datetime) -> tuple[bool, s
     sample = _safe_int(item.get("sample_size"))
     evidence = _safe_float(item.get("evidence_score"))
     conf = _safe_float(item.get("confidence"))
-    gate_state = _sync_gate_fields(item)
 
     if str(item.get("status", "pending")).lower() == ValidationStatus.PENDING.value:
         item["status"] = ValidationStatus.RUNNING.value
@@ -234,14 +235,17 @@ def _advance_pipeline_step(item: dict[str, Any], now: datetime) -> tuple[bool, s
             first = stages[0]
             if pipeline.get(first, "Pending") == "Pending":
                 pipeline[first] = "Running"
+        _sync_gate_fields(item)
         _record_transition(item, ValidationLifecycle.ZEUS_VALIDATION.value, "running", "Scheduler started validation run.", now)
         return True, "started"
 
     if str(item.get("status", "pending")).lower() in (ValidationStatus.FAILED.value, ValidationStatus.INCONCLUSIVE.value):
         return False, "terminal"
 
+    gate_state = _sync_gate_fields(item)
+
     # Not enough data: pause and wait for evidence growth.
-    if sample < _safe_int(item.get("minimum_sample_size_required")):
+    if sample < int(gate_state["thresholds"]["minimum_sample_size"]):
         item["status"] = ValidationStatus.INCONCLUSIVE.value
         item["queue_state"] = "Paused"
         item["operator_approval_status"] = "Pending More Evidence"
@@ -291,7 +295,6 @@ def _advance_pipeline_step(item: dict[str, Any], now: datetime) -> tuple[bool, s
     elif item.get("operator_approval_required", True):
         item["operator_approval_status"] = "Pending Zeus Gate Thresholds"
         item["approved_for_adoption"] = False
-        _sync_gate_fields(item)
     return True, "completed"
 
 
@@ -307,7 +310,6 @@ def _build_status(items: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
     adoption_gates_passed = 0
 
     for item in items:
-        _sync_gate_fields(item)
         status = _norm_enumish(item.get("status") or ValidationStatus.PENDING.value) or ValidationStatus.PENDING.value
         domain = _norm_enumish(item.get("domain") or "unknown") or "unknown"
         lifecycle = _norm_enumish(item.get("lifecycle") or ValidationLifecycle.ZEUS_VALIDATION.value) or ValidationLifecycle.ZEUS_VALIDATION.value
@@ -481,6 +483,9 @@ def run_zeus_validation_operations(
                     "queue_state": row.get("queue_state"),
                 }
             )
+
+    for row in rows:
+        _sync_gate_fields(row)
 
     status = _build_status(rows, now)
     runtime_payload = {

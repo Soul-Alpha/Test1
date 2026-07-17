@@ -151,6 +151,33 @@ def evaluate_validation_gates(
     }
 
 
+def _resolve_outcome_diagnostics_excluded(
+    payload: Dict[str, Any],
+    leakage_checks: Optional[Dict[str, Any]] = None,
+) -> bool | None:
+    checks = leakage_checks or {}
+    if "outcome_diagnostics_excluded" in checks:
+        return bool(checks.get("outcome_diagnostics_excluded"))
+    gate_results = payload.get("gate_results", {}) if isinstance(payload, dict) else {}
+    leakage_gate = gate_results.get("leakage_safety", {}) if isinstance(gate_results, dict) else {}
+    if "observed" in leakage_gate:
+        return bool(leakage_gate.get("observed"))
+    if "outcome_diagnostics_excluded" in payload:
+        return bool(payload.get("outcome_diagnostics_excluded"))
+    return None
+
+
+def validation_leakage_safe(
+    *,
+    domain: ValidationDomain,
+    payload: Dict[str, Any],
+    leakage_checks: Optional[Dict[str, Any]] = None,
+) -> bool:
+    if domain != ValidationDomain.FEATURE:
+        return True
+    return bool(_resolve_outcome_diagnostics_excluded(payload, leakage_checks))
+
+
 @dataclass(frozen=True)
 class MissionBoundary:
     source_system: SourceSystem

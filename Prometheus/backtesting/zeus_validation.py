@@ -16,6 +16,7 @@ from olympus.core.validation_contracts import (
     RecommendationCandidate,
     ValidationDomain,
     evaluate_validation_gates,
+    validation_leakage_safe,
     ValidationLifecycle,
     ValidationReport,
     ValidationStatus,
@@ -180,15 +181,6 @@ def _recommendation_for_domain(domain: ValidationDomain) -> str:
     return "Validation requires Zeus evidence and operator review before adoption."
 
 
-def _leakage_safe(domain: ValidationDomain, candidate: Dict[str, Any], leakage_checks: Optional[Dict[str, Any]]) -> bool:
-    if domain != ValidationDomain.FEATURE:
-        return True
-    checks = leakage_checks or {}
-    if "outcome_diagnostics_excluded" in checks:
-        return bool(checks.get("outcome_diagnostics_excluded"))
-    return bool(candidate.get("outcome_diagnostics_excluded", False))
-
-
 class ZeusValidationEngine:
     """Passive institutional validation engine facade.
 
@@ -225,7 +217,7 @@ class ZeusValidationEngine:
             confidence=round(max(0.0, min(1.0, float(confidence))), 4),
             evidence_score=evidence_score,
             statistical_confidence_result=statistical_result,
-            leakage_safe=_leakage_safe(domain, candidate, leakage_checks),
+            leakage_safe=validation_leakage_safe(domain=domain, payload=candidate, leakage_checks=leakage_checks),
         )
         thresholds = gate_evaluation["thresholds"]
         return ValidationReport(
