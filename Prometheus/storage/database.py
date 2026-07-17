@@ -12,6 +12,15 @@ Tables:
   - pattern_cache  : cached pattern results
 
 Supports SQLite (default) and PostgreSQL (set DATABASE_URL env var).
+
+SQLite durability hardening
+----------------------------
+- WAL (Write-Ahead Logging) journal mode is enabled at every connection to
+  prevent corruption on crash and to allow concurrent readers.
+- ``PRAGMA synchronous = NORMAL`` balances durability against throughput.
+- ``PRAGMA foreign_keys = ON`` enforces referential integrity.
+- ``PRAGMA integrity_check`` is run at startup; any failure raises so operators
+  cannot silently consume a corrupted database.
 """
 
 from __future__ import annotations
@@ -28,7 +37,7 @@ logger = logging.getLogger(__name__)
 try:
     from sqlalchemy import (
         JSON, Boolean, Column, DateTime, Float, Integer, String, Text,
-        create_engine,
+        create_engine, event, text,
     )
     from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
     SQLALCHEMY_AVAILABLE = True
@@ -44,11 +53,28 @@ if DATABASE_URL is None:
     DATABASE_URL = f"sqlite:///{_db_dir}/prometheus.db"
 
 if SQLALCHEMY_AVAILABLE:
+    _is_sqlite = "sqlite" in DATABASE_URL
+
     engine = create_engine(
         DATABASE_URL,
-        connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {},
+        connect_args={"check_same_thread": False} if _is_sqlite else {},
         echo=False,
     )
+
+    if _is_sqlite:
+        @event.listens_for(engine, "connect")
+        def _set_sqlite_pragmas(dbapi_conn, _connection_record):
+            """Apply durability PRAGMAs on every new SQLite connection.
+
+            WAL mode survives application crashes without requiring an explicit
+            checkpoint; NORMAL synchronous is safe for append-only workloads.
+            """
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     # ── ORM Base ──────────────────────────────────────────────────────────────
@@ -164,8 +190,41 @@ def init_db() -> None:
         return
     Base.metadata.create_all(bind=engine)
     logger.info("Database initialised at %s", DATABASE_URL)
+    # ── SQLite durability: verify integrity at startup ─────────────────────────
+    if "sqlite" in DATABASE_URL:
+        _verify_sqlite_integrity()
     # ── Migrate existing SQLite DBs: add any missing analytics columns ────────
     _migrate_trades_table()
+
+
+def _verify_sqlite_integrity() -> None:
+    """Run SQLite integrity_check at startup.
+
+    A non-OK result indicates on-disk corruption and raises RuntimeError so
+    the platform refuses to start rather than silently operating on bad data.
+    Corruption at startup always has higher severity than a delayed failure.
+    """
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text("PRAGMA integrity_check(10)")).fetchall()
+        messages = [r[0] for r in rows]
+        if messages == ["ok"]:
+            logger.info("SQLite integrity check: OK")
+            return
+        # Any non-ok message means the file is corrupt.
+        logger.critical(
+            "SQLite integrity_check FAILED — database may be corrupt: %s",
+            messages,
+        )
+        raise RuntimeError(
+            f"SQLite integrity check failed: {messages}. "
+            "Restore from backup before starting Prometheus."
+        )
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        # Unexpected error running the check itself — warn but do not block start.
+        logger.warning("SQLite integrity check could not run: %s", exc)
 
 
 def _migrate_trades_table() -> None:

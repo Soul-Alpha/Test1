@@ -52,6 +52,64 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class EngineCompleteness:
+    """Records which analysis engines completed successfully or failed.
+
+    This is the authoritative completeness record for a single analysis run.
+    Any consumer that presents analysis results MUST surface degraded-state
+    warnings when ``is_complete`` is False.
+    """
+
+    # Per-engine status: True = succeeded, False = failed
+    engine_statuses: Dict[str, bool] = field(default_factory=dict)
+
+    # Per-engine failure messages (populated only on failure)
+    engine_errors:   Dict[str, str]  = field(default_factory=dict)
+
+    @property
+    def engines_run(self) -> int:
+        return len(self.engine_statuses)
+
+    @property
+    def engines_succeeded(self) -> int:
+        return sum(1 for v in self.engine_statuses.values() if v)
+
+    @property
+    def engines_failed(self) -> int:
+        return self.engines_run - self.engines_succeeded
+
+    @property
+    def completeness_ratio(self) -> float:
+        """Fraction of engines that completed (0.0 – 1.0)."""
+        if self.engines_run == 0:
+            return 0.0
+        return self.engines_succeeded / self.engines_run
+
+    @property
+    def is_complete(self) -> bool:
+        """True only when every registered engine succeeded."""
+        return self.engines_run > 0 and self.engines_failed == 0
+
+    def record_success(self, engine: str) -> None:
+        self.engine_statuses[engine] = True
+
+    def record_failure(self, engine: str, error: Exception) -> None:
+        self.engine_statuses[engine] = False
+        self.engine_errors[engine]   = str(error)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "engines_run":        self.engines_run,
+            "engines_succeeded":  self.engines_succeeded,
+            "engines_failed":     self.engines_failed,
+            "completeness_ratio": round(self.completeness_ratio, 4),
+            "is_complete":        self.is_complete,
+            "engine_statuses":    dict(self.engine_statuses),
+            "engine_errors":      dict(self.engine_errors),
+        }
+
+
+@dataclass
 class PrometheusResult:
     """Complete result object returned from any analysis run."""
     run_id:       str
@@ -84,6 +142,11 @@ class PrometheusResult:
 
     # Convenience
     current_price: Optional[float] = None
+
+    # ── Completeness governance ────────────────────────────────────────────────
+    # Populated by the engine orchestration loop.  Consumers MUST treat any
+    # result where completeness.is_complete is False as a degraded-state report.
+    completeness: EngineCompleteness = field(default_factory=EngineCompleteness)
 
 
 class Prometheus:
@@ -193,15 +256,25 @@ class Prometheus:
         )
 
         # ── Run all engines ────────────────────────────────────────────────────
+        # Each engine result is recorded in the completeness tracker so that
+        # downstream consumers can distinguish a complete analysis from a
+        # degraded one.  A degraded result must never be silently presented as
+        # institutionally complete.
+        _c = result.completeness
+
         try:
             result.ms = self.ms_engine.analyze(df)
+            _c.record_success("market_structure")
         except Exception as e:
             logger.error("Market structure error: %s", e)
+            _c.record_failure("market_structure", e)
 
         try:
             result.sr = self.sr_engine.analyze(df)
+            _c.record_success("support_resistance")
         except Exception as e:
             logger.error("S/R error: %s", e)
+            _c.record_failure("support_resistance", e)
 
         # Supply S/R and fib levels to candlestick engine for context scoring
         support_lvls    = [z.level for z in (result.sr.support_zones    if result.sr else [])][:5]
@@ -213,8 +286,10 @@ class Prometheus:
                 swing_highs=result.ms.swing_highs if result.ms else None,
                 swing_lows =result.ms.swing_lows  if result.ms else None,
             )
+            _c.record_success("fibonacci")
         except Exception as e:
             logger.error("Fibonacci error: %s", e)
+            _c.record_failure("fibonacci", e)
 
         fib_lvls = [l.price for l in (result.fib.levels if result.fib else [])]
 
@@ -225,39 +300,66 @@ class Prometheus:
                 resistance_levels=resistance_lvls,
                 fib_levels=fib_lvls,
             )
+            _c.record_success("candlestick")
         except Exception as e:
             logger.error("Candlestick error: %s", e)
+            _c.record_failure("candlestick", e)
 
         try:
             sh = result.ms.swing_highs if result.ms else []
             sl = result.ms.swing_lows  if result.ms else []
             result.pat = self.pat_engine.analyze(df, sh, sl)
+            _c.record_success("chart_patterns")
         except Exception as e:
             logger.error("Pattern error: %s", e)
+            _c.record_failure("chart_patterns", e)
 
         try:
             result.smc = self.smc_engine.analyze(df)
+            _c.record_success("liquidity_smc")
         except Exception as e:
             logger.error("SMC error: %s", e)
+            _c.record_failure("liquidity_smc", e)
 
         try:
             tf_input = tf_data or {timeframe: df}
             result.mtf = self.mtf_engine.analyze(tf_input)
+            _c.record_success("multi_timeframe")
         except Exception as e:
             logger.error("MTF error: %s", e)
+            _c.record_failure("multi_timeframe", e)
 
         try:
             result.vwap = self.vwap_engine.analyze(df)
+            _c.record_success("vwap")
         except Exception as e:
             logger.error("VWAP error: %s", e)
+            _c.record_failure("vwap", e)
 
         try:
             result.amd = self.amd_engine.analyze(
                 df,
                 existing_fvgs=result.smc.fair_value_gaps if result.smc else None,
             )
+            _c.record_success("amd")
         except Exception as e:
             logger.error("AMD error: %s", e)
+            _c.record_failure("amd", e)
+
+        # ── Emit completeness summary ──────────────────────────────────────────
+        if not _c.is_complete:
+            logger.warning(
+                "DEGRADED ANALYSIS run=%s %s/%s engines succeeded (%.0f%%) "
+                "— failed: %s",
+                run_id,
+                _c.engines_succeeded, _c.engines_run,
+                _c.completeness_ratio * 100,
+                ", ".join(_c.engine_errors.keys()),
+            )
+        else:
+            logger.debug(
+                "Completeness: %d/%d engines OK (100%%)", _c.engines_run, _c.engines_run
+            )
 
         # Extract last-bar UTC hour for session scoring
         _session_hour: Optional[int] = None
@@ -631,4 +733,6 @@ class Prometheus:
             "nearest_support":   nearest_sup,
             "nearest_resistance": nearest_res,
             "full_text":         r.full_text if r else "",
+            # completeness governance metadata — always persisted
+            "completeness":      result.completeness.to_dict(),
         }
