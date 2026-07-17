@@ -3,15 +3,15 @@ from __future__ import annotations
 from typing import Any
 
 
-def _safe_float(value: Any) -> float:
+def _safe_float(value: Any) -> float | None:
     try:
         if value is None:
-            return float("-inf")
+            return None
         if isinstance(value, str) and not value.strip():
-            return float("-inf")
+            return None
         return float(value)
     except Exception:
-        return float("-inf")
+        return None
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -81,5 +81,11 @@ def top_research_prioritization_rows(
             }
         )
 
-    trimmed.sort(key=lambda row: _safe_float(row.get("priority_score")), reverse=True)
+    trimmed.sort(
+        key=lambda row: (
+            _safe_float(row.get("priority_score")) is not None,
+            _safe_float(row.get("priority_score")) or 0.0,
+        ),
+        reverse=True,
+    )
     return trimmed[: max(0, int(limit))]
