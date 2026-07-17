@@ -64,3 +64,31 @@ def test_recovery_rebuilds_zeus_summary_from_reports(tmp_path: Path) -> None:
     summary = state["zeus_status"].get("summary", {})
     assert summary.get("total") == 2
     assert summary.get("validated_research") == 1
+
+
+def test_recovery_uses_research_prioritization_history_when_runtime_empty(tmp_path: Path) -> None:
+    storage = tmp_path / "storage" / "olympus"
+    storage.mkdir(parents=True, exist_ok=True)
+
+    (storage / "research_prioritization_runtime.json").write_text("", encoding="utf-8")
+    _append_jsonl(
+        storage / "research_prioritization_history.jsonl",
+        {
+            "summary": {"backlog": 3, "high_priority": 1, "medium_priority": 1, "low_priority": 1},
+            "prioritized_research_roadmap": [
+                {
+                    "recommendation_id": "R-1",
+                    "recommendation": "Prioritize replay validation",
+                    "priority": "High",
+                    "priority_score": 0.44,
+                    "confidence": 0.72,
+                }
+            ],
+        },
+    )
+
+    state = recover_institutional_state(tmp_path)
+    summary = state["research_prioritization_payload"].get("summary", {})
+    assert summary.get("backlog") == 3
+    assert state["research_prioritization_payload"].get("prioritized_research_roadmap", [])[0]["recommendation_id"] == "R-1"
+    assert state["recovery_audit"].get("research_prioritization_source") == "history"

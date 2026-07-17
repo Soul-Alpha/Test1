@@ -15,6 +15,10 @@ import plotly.express as px
 import streamlit as st
 
 from olympus.core.institutional_state_recovery import recover_institutional_state
+from ui.knowledge_growth_dashboard_support import (
+    summarize_research_prioritization,
+    top_research_prioritization_rows,
+)
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
@@ -125,6 +129,7 @@ knowledge_graph = recovered.get("knowledge_graph", {})
 replay_payload = recovered.get("replay_payload", {})
 meta_learning_payload = recovered.get("meta_learning_payload", {})
 aro_payload = recovered.get("aro_payload", {})
+research_prioritization_payload = recovered.get("research_prioritization_payload", {})
 coverage_payload = recovered.get("coverage_payload", {})
 knowledge_evolution_payload = recovered.get("knowledge_evolution_payload", {})
 explainability_payload = recovered.get("explainability_payload", {})
@@ -333,6 +338,8 @@ with _kg_t2:
 # ══════════════════════════════════════════════════════════════════════════════
 with _kg_t3:
     st.caption("Autonomous research pipeline: backlog, priorities, ROI, completion, and retirement. Research queue shows pending hypotheses.")
+    research_priority_summary = summarize_research_prioritization(research_prioritization_payload)
+    research_priority_rows = top_research_prioritization_rows(research_prioritization_payload, limit=10)
 
     st.markdown("### Olympus Command Center — Autonomous Research")
     ar1, ar2, ar3, ar4, ar5 = st.columns(5)
@@ -357,6 +364,18 @@ with _kg_t3:
     if (research_queue.get("rows", []) or []):
         st.markdown("### Research Queue")
         st.dataframe(pd.DataFrame(research_queue.get("rows", [])).head(200), use_container_width=True, hide_index=True)
+
+    st.markdown("### Research Prioritization Health")
+    rp1, rp2, rp3, rp4 = st.columns(4)
+    rp1.metric("Prioritized Backlog", research_priority_summary.get("backlog", 0))
+    rp2.metric("High Priority", research_priority_summary.get("high_priority", 0))
+    rp3.metric("Medium Priority", research_priority_summary.get("medium_priority", 0))
+    rp4.metric("Low Priority", research_priority_summary.get("low_priority", 0))
+
+    if research_priority_rows:
+        st.dataframe(pd.DataFrame(research_priority_rows), use_container_width=True, hide_index=True)
+    else:
+        st.caption("Research prioritization artifacts are awaiting historical data.")
 
     st.markdown("### Explainability and Governance")
     ex_summary = (explainability_payload.get("summary", {}) if isinstance(explainability_payload, dict) else {}) or {}
