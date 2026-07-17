@@ -1,0 +1,38 @@
+# Python caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local env files
+.env
+.env.*
+
+# Runtime logs and pids
+*.log
+*.pid
+
+# Runtime state files
+live_bot/bot_status.json
+live_bot/hermes_status.json
+live_bot/learning_state.json
+live_bot/start_all_pids.json
+live_bot/stop.flag
+
+# Generated outputs
+outputs/
+logs/
+
+# Local databases and model artifacts
+storage/*.db
+models/**/*.pkl
+
+# Large generated research/runtime artifacts
+storage/olympus/**/*.jsonl
+storage/olympus/**/*.json
+storage/olympus_research/**/*.jsonl
+storage/olympus_research/**/*.json
+
+# Temporary files
+*.tmp
+*.bak
