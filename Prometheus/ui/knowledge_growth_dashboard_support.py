@@ -14,6 +14,17 @@ def _safe_float(value: Any) -> float:
         return float("-inf")
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        if isinstance(value, str) and not value.strip():
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
 def summarize_research_prioritization(payload: dict[str, Any] | None) -> dict[str, int]:
     if not isinstance(payload, dict):
         payload = {}
@@ -24,10 +35,10 @@ def summarize_research_prioritization(payload: dict[str, Any] | None) -> dict[st
     if not isinstance(summary, dict):
         summary = {}
 
-    high = int(summary.get("high_priority", 0) or 0)
-    medium = int(summary.get("medium_priority", 0) or 0)
-    low = int(summary.get("low_priority", 0) or 0)
-    backlog = int(summary.get("backlog", len(rows)) or 0)
+    high = _safe_int(summary.get("high_priority"), 0)
+    medium = _safe_int(summary.get("medium_priority"), 0)
+    low = _safe_int(summary.get("low_priority"), 0)
+    backlog = _safe_int(summary.get("backlog"), len(rows))
 
     if rows and not any((high, medium, low)):
         high = len([row for row in rows if str((row or {}).get("priority", "")).strip().lower() == "high"])
