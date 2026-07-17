@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from live_bot.hermes import _update_idip_status
+from live_bot.idip_status import update_idip_status
 from ui.knowledge_growth_dashboard_support import (
     summarize_research_prioritization,
     top_research_prioritization_rows,
@@ -30,7 +30,7 @@ def test_update_idip_status_exposes_research_prioritization_payload() -> None:
         "self_improvement_loop": {"active": True},
     }
 
-    _update_idip_status(status, idip=idip, idip_artifacts={"runtime": "runtime.json"})
+    update_idip_status(status, idip=idip, idip_artifacts={"runtime": "runtime.json"})
 
     assert status["idip_summary"] == {"sample_size": 12}
     assert status["idip_research_prioritization"] == idip["engines"]["research_prioritization_engine"]
