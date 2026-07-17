@@ -85,8 +85,8 @@ def test_full_run_completeness_populated(small_df):
                               render_chart=False, save_to_db=False)
 
     assert result.completeness.engines_run == 9
-    # In normal operation every engine should succeed.
-    assert result.completeness.engines_succeeded >= 1  # at minimum some ran
+    assert result.completeness.engines_succeeded == 9
+    assert result.completeness.is_complete is True
 
 
 def test_degraded_run_is_not_silent(small_df):

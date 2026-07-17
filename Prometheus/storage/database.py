@@ -206,6 +206,11 @@ def _verify_sqlite_integrity() -> None:
     """
     try:
         with engine.connect() as conn:
+            # Limit 10 is sufficient to detect critical structural corruption at
+            # startup; full integrity_check (no limit) would be too slow for a
+            # blocking startup path. A value of 10 means SQLite reports up to
+            # 10 distinct error rows before stopping, which covers the most
+            # common corruption patterns (page checksum failures, b-tree errors).
             rows = conn.execute(text("PRAGMA integrity_check(10)")).fetchall()
         messages = [r[0] for r in rows]
         if messages == ["ok"]:

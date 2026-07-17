@@ -350,7 +350,7 @@ class Prometheus:
         if not _c.is_complete:
             logger.warning(
                 "DEGRADED ANALYSIS run=%s %s/%s engines succeeded (%.0f%%) "
-                "— failed: %s",
+                "-- failed: %s",
                 run_id,
                 _c.engines_succeeded, _c.engines_run,
                 _c.completeness_ratio * 100,
