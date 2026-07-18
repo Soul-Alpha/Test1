@@ -168,6 +168,13 @@ def recover_institutional_state(root_dir: Path, *, write_snapshot: bool = False)
 
     meta_learning_payload, meta_source = _recover_runtime(storage / "meta_learning_runtime.json", storage / "meta_learning_history.jsonl")
     aro_payload, aro_source = _recover_runtime(storage / "autonomous_research_orchestrator_runtime.json", storage / "autonomous_research_orchestrator_history.jsonl")
+    research_prioritization_payload, research_prioritization_source = _recover_runtime(
+        storage / "research_prioritization_runtime.json",
+        storage / "research_prioritization_history.jsonl",
+    )
+    if not _has_payload(research_prioritization_payload):
+        research_prioritization_payload = idip_engines.get("research_prioritization_engine", {}) or {}
+        research_prioritization_source = "idip_runtime" if _has_payload(research_prioritization_payload) else research_prioritization_source
     coverage_payload, coverage_source = _recover_runtime(storage / "knowledge_coverage_runtime.json", storage / "knowledge_coverage_history.jsonl")
     explainability_payload, explainability_source = _recover_runtime(storage / "explainability_runtime.json", storage / "explainability_history.jsonl")
     research_director_payload, research_director_source = _recover_runtime(
@@ -218,6 +225,7 @@ def recover_institutional_state(root_dir: Path, *, write_snapshot: bool = False)
         "replay_source": replay_source,
         "meta_learning_source": meta_source,
         "aro_source": aro_source,
+        "research_prioritization_source": research_prioritization_source,
         "coverage_source": coverage_source,
         "explainability_source": explainability_source,
         "research_director_source": research_director_source,
@@ -243,6 +251,7 @@ def recover_institutional_state(root_dir: Path, *, write_snapshot: bool = False)
         "replay_payload": replay_payload if isinstance(replay_payload, dict) else {},
         "meta_learning_payload": meta_learning_payload if isinstance(meta_learning_payload, dict) else {},
         "aro_payload": aro_payload if isinstance(aro_payload, dict) else {},
+        "research_prioritization_payload": research_prioritization_payload if isinstance(research_prioritization_payload, dict) else {},
         "coverage_payload": coverage_payload if isinstance(coverage_payload, dict) else {},
         "knowledge_evolution_payload": knowledge_evolution_payload if isinstance(knowledge_evolution_payload, dict) else {},
         "explainability_payload": explainability_payload if isinstance(explainability_payload, dict) else {},

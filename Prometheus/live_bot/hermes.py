@@ -45,6 +45,7 @@ from olympus.core.model_registry import ModelRegistry
 from olympus.core.research_repository import ResearchRepository
 from olympus.core.pattern_snapshot import append_pattern_snapshot
 from olympus.core.return_intelligence import build_return_intelligence
+from live_bot.idip_status import update_idip_status
 from olympus.core.institutional_decision_intelligence_platform import (
     build_institutional_decision_intelligence_platform,
     write_idip_artifacts,
@@ -1051,23 +1052,7 @@ class HermesBot:
                     },
                 )
                 idip_artifacts = write_idip_artifacts(_ROOT, idip)
-                self._status["idip"] = idip
-                self._status["idip_artifacts"] = idip_artifacts
-                self._status["idip_summary"] = idip.get("summary", {})
-                self._status["idip_engines"] = {
-                    "exit_intelligence": idip.get("engines", {}).get("exit_intelligence", {}),
-                    "duration_intelligence": idip.get("engines", {}).get("duration_intelligence", {}),
-                    "reward_capture_intelligence": idip.get("engines", {}).get("reward_capture_intelligence", {}),
-                    "institutional_risk_intelligence": idip.get("engines", {}).get("institutional_risk_intelligence", {}),
-                    "portfolio_intelligence": idip.get("engines", {}).get("portfolio_intelligence", {}),
-                    "decision_attribution_intelligence": idip.get("engines", {}).get("decision_attribution_intelligence", {}),
-                }
-                self._status["idip_recommendations"] = idip.get("zeus_research_recommendations", [])
-                self._status["idip_self_improvement_loop"] = idip.get("self_improvement_loop", {})
-                self._status["idip_meta_learning"] = idip.get("engines", {}).get("meta_learning_engine", {})
-                self._status["idip_aro"] = idip.get("engines", {}).get("autonomous_research_orchestrator", {})
-                self._status["idip_research_director"] = idip.get("engines", {}).get("institutional_research_director", {})
-                self._status["idip_explainability"] = idip.get("engines", {}).get("explainability_engine", {})
+                update_idip_status(self._status, idip=idip, idip_artifacts=idip_artifacts)
             except Exception as exc:
                 self._status["idip_error"] = str(exc)
 

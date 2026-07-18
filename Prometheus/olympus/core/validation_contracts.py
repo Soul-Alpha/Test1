@@ -51,6 +51,134 @@ class ValidationStatus(str, Enum):
 
 
 @dataclass(frozen=True)
+class ValidationGateThresholds:
+    minimum_sample_size: int = 20
+    minimum_adoption_sample_size: int = 120
+    minimum_evidence_score: float = 0.55
+    minimum_confidence: float = 0.55
+    required_statistical_confidence_status: str = "Passed"
+    leakage_safe_required: bool = False
+
+    def as_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+def validation_gate_thresholds(domain: ValidationDomain) -> ValidationGateThresholds:
+    if domain == ValidationDomain.FEATURE:
+        return ValidationGateThresholds(leakage_safe_required=True)
+    return ValidationGateThresholds()
+
+
+def evaluate_validation_gates(
+    *,
+    domain: ValidationDomain,
+    sample_size: int,
+    confidence: float,
+    evidence_score: float,
+    statistical_confidence_result: str,
+    leakage_safe: bool,
+) -> Dict[str, Any]:
+    thresholds = validation_gate_thresholds(domain)
+    observed_stat = str(statistical_confidence_result or "Pending")
+
+    sample_ready = sample_size >= thresholds.minimum_sample_size
+    adoption_sample_ready = sample_size >= thresholds.minimum_adoption_sample_size
+    evidence_ready = evidence_score >= thresholds.minimum_evidence_score
+    confidence_ready = confidence >= thresholds.minimum_confidence
+    statistical_ready = observed_stat.lower() == thresholds.required_statistical_confidence_status.lower()
+    leakage_ready = True if not thresholds.leakage_safe_required else bool(leakage_safe)
+
+    blockers: List[str] = []
+    if not sample_ready:
+        blockers.append("minimum_sample_size")
+    if not adoption_sample_ready:
+        blockers.append("minimum_adoption_sample_size")
+    if not evidence_ready:
+        blockers.append("minimum_evidence_score")
+    if not confidence_ready:
+        blockers.append("minimum_confidence")
+    if not statistical_ready:
+        blockers.append("statistical_confidence")
+    if not leakage_ready:
+        blockers.append("leakage_safety")
+
+    return {
+        "thresholds": thresholds.as_dict(),
+        "gates": {
+            "minimum_sample_size": {
+                "required": thresholds.minimum_sample_size,
+                "observed": sample_size,
+                "passed": sample_ready,
+            },
+            "minimum_adoption_sample_size": {
+                "required": thresholds.minimum_adoption_sample_size,
+                "observed": sample_size,
+                "passed": adoption_sample_ready,
+            },
+            "minimum_evidence_score": {
+                "required": thresholds.minimum_evidence_score,
+                "observed": round(evidence_score, 4),
+                "passed": evidence_ready,
+            },
+            "minimum_confidence": {
+                "required": thresholds.minimum_confidence,
+                "observed": round(confidence, 4),
+                "passed": confidence_ready,
+            },
+            "statistical_confidence": {
+                "required": thresholds.required_statistical_confidence_status,
+                "observed": observed_stat,
+                "passed": statistical_ready,
+            },
+            "leakage_safety": {
+                "required": thresholds.leakage_safe_required,
+                "observed": bool(leakage_safe),
+                "passed": leakage_ready,
+            },
+        },
+        "validation_gate_passed": sample_ready,
+        "adoption_gate_passed": all(
+            [
+                sample_ready,
+                adoption_sample_ready,
+                evidence_ready,
+                confidence_ready,
+                statistical_ready,
+                leakage_ready,
+            ]
+        ),
+        "gate_blockers": blockers,
+    }
+
+
+def _resolve_outcome_diagnostics_excluded(
+    payload: Dict[str, Any],
+    leakage_checks: Optional[Dict[str, Any]] = None,
+) -> bool | None:
+    checks = leakage_checks or {}
+    if "outcome_diagnostics_excluded" in checks:
+        return bool(checks.get("outcome_diagnostics_excluded"))
+    gate_results = payload.get("gate_results", {}) if isinstance(payload, dict) else {}
+    leakage_gate = gate_results.get("leakage_safety", {}) if isinstance(gate_results, dict) else {}
+    if "observed" in leakage_gate:
+        return bool(leakage_gate.get("observed"))
+    if "outcome_diagnostics_excluded" in payload:
+        return bool(payload.get("outcome_diagnostics_excluded"))
+    return None
+
+
+def validation_leakage_safe(
+    *,
+    domain: ValidationDomain,
+    payload: Dict[str, Any],
+    leakage_checks: Optional[Dict[str, Any]] = None,
+) -> bool:
+    if domain != ValidationDomain.FEATURE:
+        return True
+    return bool(_resolve_outcome_diagnostics_excluded(payload, leakage_checks))
+
+
+@dataclass(frozen=True)
 class MissionBoundary:
     source_system: SourceSystem
     mission: SystemMission
@@ -268,6 +396,16 @@ class ValidationReport:
     mission: str = "Institutional Validation Engine"
     submission_time: str = ""
     priority: str = "Normal"
+    minimum_sample_size_required: int = 20
+    minimum_adoption_sample_size_required: int = 120
+    minimum_evidence_score_required: float = 0.55
+    minimum_confidence_required: float = 0.55
+    required_statistical_confidence_status: str = "Passed"
+    leakage_safe_required: bool = False
+    validation_gate_passed: bool = False
+    adoption_gate_passed: bool = False
+    gate_blockers: List[str] = field(default_factory=list)
+    gate_results: Dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> Dict[str, Any]:
         data = asdict(self)

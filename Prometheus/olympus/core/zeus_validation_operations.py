@@ -7,7 +7,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from olympus.core.validation_contracts import ValidationLifecycle, ValidationStatus
+from olympus.core.validation_contracts import (
+    ValidationDomain,
+    ValidationLifecycle,
+    ValidationStatus,
+    evaluate_validation_gates,
+    validation_leakage_safe,
+)
 
 ZVO_VERSION = "zvo-v1.0"
 
@@ -167,6 +173,53 @@ def _pipeline_stage_order(item: dict[str, Any]) -> list[str]:
     return out or base
 
 
+def _domain_from_item(item: dict[str, Any]) -> ValidationDomain:
+    raw = _norm_enumish(item.get("domain") or item.get("validation_domain") or ValidationDomain.RECOMMENDATION.value)
+    try:
+        return ValidationDomain(raw)
+    except Exception:
+        return ValidationDomain.RECOMMENDATION
+
+
+def _sync_pipeline_results(item: dict[str, Any]) -> None:
+    pipeline = item.get("validation_pipeline") or {}
+    item["historical_result"] = pipeline.get("Historical Validation", item.get("historical_result", "Pending"))
+    item["walk_forward_result"] = pipeline.get("Walk Forward", item.get("walk_forward_result", "Pending"))
+    item["out_of_sample_result"] = pipeline.get("Out-of-Sample", item.get("out_of_sample_result", "Pending"))
+    item["monte_carlo_result"] = pipeline.get("Monte Carlo", item.get("monte_carlo_result", "Pending"))
+    item["robustness_result"] = pipeline.get("Robustness", item.get("robustness_result", "Pending"))
+    item["feature_validation_result"] = pipeline.get("Feature Validation", item.get("feature_validation_result", "N/A"))
+    item["leakage_status"] = pipeline.get("Leakage Detection", item.get("leakage_status", "Pending"))
+    item["statistical_confidence_result"] = pipeline.get("Statistical Confidence", item.get("statistical_confidence_result", "Pending"))
+    item["execution_validation_result"] = pipeline.get("Execution Validation", item.get("execution_validation_result", "N/A"))
+    item["capital_validation_result"] = pipeline.get("Capital Validation", item.get("capital_validation_result", "N/A"))
+
+
+def _sync_gate_fields(item: dict[str, Any]) -> dict[str, Any]:
+    _sync_pipeline_results(item)
+    domain = _domain_from_item(item)
+    evaluation = evaluate_validation_gates(
+        domain=domain,
+        sample_size=max(0, _safe_int(item.get("sample_size"))),
+        confidence=max(0.0, min(1.0, _safe_float(item.get("confidence")))),
+        evidence_score=max(0.0, min(1.0, _safe_float(item.get("evidence_score")))),
+        statistical_confidence_result=str(item.get("statistical_confidence_result") or "Pending"),
+        leakage_safe=validation_leakage_safe(domain=domain, payload=item, leakage_checks=item.get("leakage_checks")),
+    )
+    thresholds = evaluation["thresholds"]
+    item["minimum_sample_size_required"] = int(thresholds["minimum_sample_size"])
+    item["minimum_adoption_sample_size_required"] = int(thresholds["minimum_adoption_sample_size"])
+    item["minimum_evidence_score_required"] = float(thresholds["minimum_evidence_score"])
+    item["minimum_confidence_required"] = float(thresholds["minimum_confidence"])
+    item["required_statistical_confidence_status"] = str(thresholds["required_statistical_confidence_status"])
+    item["leakage_safe_required"] = bool(thresholds["leakage_safe_required"])
+    item["validation_gate_passed"] = bool(evaluation["validation_gate_passed"])
+    item["adoption_gate_passed"] = bool(evaluation["adoption_gate_passed"])
+    item["gate_blockers"] = list(evaluation["gate_blockers"])
+    item["gate_results"] = dict(evaluation["gates"])
+    return evaluation
+
+
 def _advance_pipeline_step(item: dict[str, Any], now: datetime) -> tuple[bool, str]:
     pipeline = item.setdefault("validation_pipeline", {})
     stages = _pipeline_stage_order(item)
@@ -182,17 +235,21 @@ def _advance_pipeline_step(item: dict[str, Any], now: datetime) -> tuple[bool, s
             first = stages[0]
             if pipeline.get(first, "Pending") == "Pending":
                 pipeline[first] = "Running"
+        _sync_gate_fields(item)
         _record_transition(item, ValidationLifecycle.ZEUS_VALIDATION.value, "running", "Scheduler started validation run.", now)
         return True, "started"
 
     if str(item.get("status", "pending")).lower() in (ValidationStatus.FAILED.value, ValidationStatus.INCONCLUSIVE.value):
         return False, "terminal"
 
+    gate_state = _sync_gate_fields(item)
+
     # Not enough data: pause and wait for evidence growth.
-    if sample < 20:
+    if sample < int(gate_state["thresholds"]["minimum_sample_size"]):
         item["status"] = ValidationStatus.INCONCLUSIVE.value
         item["queue_state"] = "Paused"
         item["operator_approval_status"] = "Pending More Evidence"
+        _sync_gate_fields(item)
         _record_transition(item, ValidationLifecycle.ZEUS_VALIDATION.value, "paused", "Sample size below institutional minimum.", now)
         return True, "paused"
 
@@ -203,26 +260,28 @@ def _advance_pipeline_step(item: dict[str, Any], now: datetime) -> tuple[bool, s
         if quality >= threshold:
             pipeline[stage] = "Passed"
             item["scheduler_step"] = idx + 1
+            _sync_gate_fields(item)
             _record_transition(item, ValidationLifecycle.ZEUS_VALIDATION.value, "progress", f"{stage} passed.", now)
             return True, "progress"
         pipeline[stage] = "Failed"
         item["status"] = ValidationStatus.FAILED.value
         item["queue_state"] = "Rejected"
         item["operator_approval_status"] = "Rejected by Zeus Validation"
+        _sync_gate_fields(item)
         _record_transition(item, ValidationLifecycle.ZEUS_VALIDATION.value, "failed", f"{stage} failed quality threshold.", now)
         return True, "failed"
 
     item["status"] = ValidationStatus.PASSED.value
     item["queue_state"] = "Completed"
     item["lifecycle"] = ValidationLifecycle.VALIDATED.value
+    gate_state = _sync_gate_fields(item)
     _record_transition(item, ValidationLifecycle.VALIDATED.value, "passed", "Validation pipeline completed.", now)
 
     # Governance-preserving approval policy: approval != deployment.
     if (
         item.get("operator_approval_required", True)
         and not bool(item.get("approved_for_adoption"))
-        and sample >= 120
-        and evidence >= 0.55
+        and bool(gate_state.get("adoption_gate_passed"))
     ):
         item["approved_for_adoption"] = True
         item["approved_at"] = _utc_str(now)
@@ -233,6 +292,9 @@ def _advance_pipeline_step(item: dict[str, Any], now: datetime) -> tuple[bool, s
 
         item["lifecycle"] = ValidationLifecycle.ACTIVE.value
         _record_transition(item, ValidationLifecycle.ACTIVE.value, "active", "Activated for optional downstream adoption.", now)
+    elif item.get("operator_approval_required", True):
+        item["operator_approval_status"] = "Pending Zeus Gate Thresholds"
+        item["approved_for_adoption"] = False
     return True, "completed"
 
 
@@ -244,6 +306,8 @@ def _build_status(items: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
     ages: list[float] = []
     approvals_24h = 0
     approved_candidates_24h: set[str] = set()
+    validation_gates_passed = 0
+    adoption_gates_passed = 0
 
     for item in items:
         status = _norm_enumish(item.get("status") or ValidationStatus.PENDING.value) or ValidationStatus.PENDING.value
@@ -254,6 +318,10 @@ def _build_status(items: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
         by_lifecycle[lifecycle] = by_lifecycle.get(lifecycle, 0) + 1
         queue_state = str(item.get("queue_state", "Queued"))
         queue_counts[queue_state] = queue_counts.get(queue_state, 0) + 1
+        if bool(item.get("validation_gate_passed", False)):
+            validation_gates_passed += 1
+        if bool(item.get("adoption_gate_passed", False)):
+            adoption_gates_passed += 1
 
         ts = _safe_dt(item.get("timestamp"))
         if ts is not None:
@@ -299,6 +367,8 @@ def _build_status(items: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
             "average_queue_age_hours": round(sum(ages) / max(1, len(ages)), 3) if ages else 0.0,
             "institutional_confidence": round(sum(_safe_float(x.get("confidence")) for x in items) / max(1, len(items)), 4),
             "approval_velocity_24h": approvals_24h,
+            "validation_gates_passed": validation_gates_passed,
+            "adoption_gates_passed": adoption_gates_passed,
         },
         "queue": {
             "items": items,
@@ -370,6 +440,7 @@ def run_zeus_validation_operations(
             ):
                 if fld in raw:
                     current[fld] = raw.get(fld)
+            _sync_gate_fields(current)
             queue[key] = current
         else:
             row = dict(raw)
@@ -381,6 +452,7 @@ def run_zeus_validation_operations(
             row.setdefault("approved_for_adoption", False)
             row.setdefault("operator_approval_status", "Pending Operator Review")
             row.setdefault("lifecycle_history", [])
+            _sync_gate_fields(row)
             _record_transition(row, ValidationLifecycle.CANDIDATE.value, "queued", "Candidate merged into Zeus queue.", now)
             queue[key] = row
 
@@ -411,6 +483,9 @@ def run_zeus_validation_operations(
                     "queue_state": row.get("queue_state"),
                 }
             )
+
+    for row in rows:
+        _sync_gate_fields(row)
 
     status = _build_status(rows, now)
     runtime_payload = {

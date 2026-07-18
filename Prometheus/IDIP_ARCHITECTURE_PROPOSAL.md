@@ -53,6 +53,7 @@
 - Risks: Recommendations without evidence scoring reduce validation quality.
 - Recommendations: Emit evidence score and sample metadata for each recommendation.
 - Required Changes: IDIP recommendation queue with evidence-rich payload.
+- Institutional Gate Policy: Zeus validation artifacts must expose explicit minimum sample, confidence, evidence-score, and statistical-confidence thresholds before adoption can be marked eligible.
 - Decision: Approval.
 
 ### Machine Learning Engineer
