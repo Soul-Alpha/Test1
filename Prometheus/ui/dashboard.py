@@ -42,6 +42,7 @@ _ZEUS_VALIDATION_F = ROOT / "storage" / "olympus" / "zeus_validation_status.json
 _INSTITUTIONAL_RUNTIME_F = ROOT / "storage" / "olympus" / "institutional_risk_performance_runtime.json"
 
 
+@st.cache_data(ttl=60)
 def _load_json_silent(path: Path) -> Dict[str, Any]:
     try:
         if path.exists():

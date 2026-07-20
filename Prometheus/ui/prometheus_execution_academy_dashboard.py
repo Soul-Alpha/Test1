@@ -25,6 +25,7 @@ from olympus.core.prometheus_decision_intelligence import (
 from ui.dashboard_registry_support import render_registry_metrics, render_registry_tables
 
 
+@st.cache_data(ttl=60)
 def _load_json_silent(path: Path) -> dict[str, Any]:
     try:
         if path.exists():
@@ -33,6 +34,11 @@ def _load_json_silent(path: Path) -> dict[str, Any]:
     except Exception:
         pass
     return {}
+
+
+@st.cache_data(ttl=120)
+def _build_prometheus_decision_intelligence_cached():
+    return build_prometheus_decision_intelligence(_ROOT)
 
 
 def _safe_float(v: Any) -> float | None:
@@ -62,7 +68,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-intel = build_prometheus_decision_intelligence(_ROOT)
+intel = _build_prometheus_decision_intelligence_cached()
 paths = write_prometheus_intelligence_artifacts(_ROOT, intel)
 evo = _load_json_silent(_ROOT / "storage" / "olympus" / "prometheus_evolution_intelligence.json")
 zeus_validation = _load_json_silent(_ROOT / "storage" / "olympus" / "zeus_validation_status.json")

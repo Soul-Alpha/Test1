@@ -14,6 +14,14 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+@st.cache_data(ttl=60)
+def _load_json_cached(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
@@ -22,6 +30,24 @@ from olympus.core.hermes_analytics import build_hermes_analytics
 from ui.dashboard_registry_support import render_registry_metrics, render_registry_tables
 
 _STATUS_F = _ROOT / "live_bot" / "hermes_status.json"
+
+
+@st.cache_data(ttl=120)
+def _build_hermes_analytics_cached():
+    try:
+        return build_hermes_analytics(_ROOT)
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=60)
+def _load_hermes_status_cached():
+    if not _STATUS_F.exists():
+        return {}
+    try:
+        return json.loads(_STATUS_F.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 
 def _safe_float(v: Any) -> float | None:
@@ -72,21 +98,17 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if not _STATUS_F.exists():
+status = _load_hermes_status_cached()
+if not status:
     st.warning("Hermes status file not found yet. Start Hermes first.")
     st.stop()
 
-status = json.loads(_STATUS_F.read_text(encoding="utf-8"))
-analytics = {}
-try:
-    analytics = build_hermes_analytics(_ROOT)
-except Exception:
-    analytics = {}
+analytics = _build_hermes_analytics_cached()
 
 ctx = analytics.get("pattern_context_intelligence", {}) if isinstance(analytics, dict) else {}
 academy = ctx.get("academy_subject", {}) if isinstance(ctx, dict) else {}
 metrics = analytics.get("metrics", {}) if isinstance(analytics, dict) else {}
-identity = json.loads(_STATUS_F.read_text(encoding="utf-8")).get("system_identity", {}) if _STATUS_F.exists() else {}
+identity = status.get("system_identity", {})
 hermes_version = identity.get("build_version") or identity.get("model_version") or "v2.0"
 
 st.markdown("### Context Intelligence Summary")

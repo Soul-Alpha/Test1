@@ -21,6 +21,25 @@ from olympus.core.hermes_analytics import build_hermes_analytics
 
 _STATUS_F = _ROOT / "live_bot" / "hermes_status.json"
 
+
+@st.cache_data(ttl=60)
+def _load_hermes_status() -> dict:
+    if not _STATUS_F.exists():
+        return {}
+    try:
+        return json.loads(_STATUS_F.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=120)
+def _build_hermes_analytics_cached():
+    try:
+        return build_hermes_analytics(_ROOT)
+    except Exception:
+        return {}
+
+
 st.set_page_config(page_title="Hermes Return Intelligence", page_icon="↗", layout="wide")
 st.markdown(
     """
@@ -39,15 +58,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if not _STATUS_F.exists():
+status = _load_hermes_status()
+if not status:
     st.warning("Hermes status file not found yet. Start the bot first.")
     st.stop()
 
-status = json.loads(_STATUS_F.read_text(encoding="utf-8"))
-analytics = {}
-try:
-    analytics = build_hermes_analytics(_ROOT)
-except Exception:
+analytics = _build_hermes_analytics_cached()
     analytics = {}
 
 return_intel = status.get("return_intelligence") or analytics.get("return_intelligence", {})

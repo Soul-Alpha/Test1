@@ -21,15 +21,31 @@ from olympus.core.hermes_analytics import build_hermes_analytics
 
 _STATUS_F = _ROOT / "live_bot" / "hermes_status.json"
 
+
+@st.cache_data(ttl=60)
+def _load_hermes_status() -> dict:
+    if not _STATUS_F.exists():
+        return {}
+    try:
+        return json.loads(_STATUS_F.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=120)
+def _build_hermes_analytics_cached():
+    try:
+        return build_hermes_analytics(_ROOT)
+    except Exception:
+        return {}
+
+
 st.set_page_config(page_title="Hermes Academy", page_icon="🎓", layout="wide")
 st.title("Hermes Academy")
 st.caption("Institutional learning intelligence layer for Hermes (analytics-only).")
 
-status = {}
-if _STATUS_F.exists():
-    status = json.loads(_STATUS_F.read_text(encoding="utf-8"))
-
-analytics = build_hermes_analytics(_ROOT)
+status = _load_hermes_status()
+analytics = _build_hermes_analytics_cached()
 academy = status.get("academy") or analytics.get("academy", {})
 edge = status.get("edge_stability") or analytics.get("edge_stability", {})
 perf_diag = status.get("performance_diagnostics") or analytics.get("performance_diagnostics", {})

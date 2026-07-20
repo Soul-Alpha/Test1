@@ -16,10 +16,15 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from olympus.core.prometheus_evolution_intelligence import (  # noqa: E402
+import streamlit as st
+from olympus.core.prometheus_evolution_intelligence import (
     build_prometheus_evolution_intelligence,
     write_prometheus_evolution_artifacts,
 )
+
+@st.cache_data(ttl=120)
+def _build_prometheus_evolution_intelligence_cached():
+    return build_prometheus_evolution_intelligence(_ROOT)
 
 
 def _arrow_safe_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -59,7 +64,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-intel = build_prometheus_evolution_intelligence(_ROOT)
+intel = _build_prometheus_evolution_intelligence_cached()
 paths = write_prometheus_evolution_artifacts(_ROOT, intel)
 
 meta = intel.get("meta", {})

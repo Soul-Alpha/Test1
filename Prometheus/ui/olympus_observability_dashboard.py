@@ -34,6 +34,24 @@ def _safe_float(v: Any) -> float | None:
         return None
 
 
+@st.cache_data(ttl=60)
+def _load_hermes_status() -> dict:
+    if not _STATUS_F.exists():
+        return {}
+    try:
+        return json.loads(_STATUS_F.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=120)
+def _build_hermes_analytics_cached():
+    try:
+        return build_hermes_analytics(_ROOT)
+    except Exception:
+        return {}
+
+
 st.set_page_config(page_title="Olympus Observability", page_icon="OBS", layout="wide")
 st.markdown(
     """
@@ -50,14 +68,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-status = {}
-if _STATUS_F.exists():
-    status = json.loads(_STATUS_F.read_text(encoding="utf-8"))
-
-analytics = {}
-try:
-    analytics = build_hermes_analytics(_ROOT)
-except Exception:
+status = _load_hermes_status()
+analytics = _build_hermes_analytics_cached()
+if not analytics:
     analytics = {}
 
 obs = status.get("olympus_observability") or analytics.get("olympus_observability", {})

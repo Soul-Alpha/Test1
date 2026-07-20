@@ -15,6 +15,25 @@ import plotly.express as px
 import streamlit as st
 
 from olympus.core.hermes_analytics import build_hermes_analytics
+
+
+@st.cache_data(ttl=60)
+def _load_json_cached(path: Path) -> dict:
+    try:
+        raw = path.read_text(encoding="utf-8")
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=120)
+def _build_hermes_analytics_cached():
+    try:
+        return build_hermes_analytics(_ROOT)
+    except Exception:
+        return {}
+
+
 from ui.dashboard_registry_support import render_registry_metrics, render_registry_tables
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -100,7 +119,7 @@ if status_load_error:
 
 live_analytics = {}
 try:
-    live_analytics = build_hermes_analytics(_ROOT)
+    live_analytics = _build_hermes_analytics_cached()
 except Exception:
     live_analytics = {}
 

@@ -22,8 +22,7 @@ _DECISION_INTEL = _ROOT / "storage" / "olympus" / "prometheus_decision_intellige
 _ACADEMY_REPORT = _ROOT / "storage" / "olympus" / "prometheus_execution_academy_report.json"
 _RESEARCH_LIB = _ROOT / "storage" / "olympus" / "prometheus_research_library.jsonl"
 
-
-def _read_json(path: Path) -> dict[str, Any]:
+@st.cache_data(ttl=60)def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
@@ -54,6 +53,7 @@ def _file_age_minutes(path: Path) -> float | None:
         return None
 
 
+@st.cache_data(ttl=60)
 def _read_research_tail(path: Path, max_lines: int = 100) -> list[dict[str, Any]]:
     if not path.exists():
         return []

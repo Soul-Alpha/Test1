@@ -29,6 +29,7 @@ _STORAGE = _ROOT / "storage" / "olympus"
 STATUS_AWAITING = "Awaiting Historical Data"
 
 
+@st.cache_data(ttl=60)
 def _load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
@@ -38,6 +39,7 @@ def _load_json(path: Path, default: Any) -> Any:
         return default
 
 
+@st.cache_data(ttl=60)
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -110,7 +112,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-recovered = recover_institutional_state(_ROOT)
+
+@st.cache_data(ttl=120)
+def _recover_institutional_state_cached():
+    return recover_institutional_state(_ROOT)
+
+
+recovered = _recover_institutional_state_cached()
 
 status = recovered.get("status", {}) if isinstance(recovered, dict) else {}
 idip = recovered.get("idip", {}) if isinstance(recovered, dict) else {}
