@@ -48,6 +48,41 @@ def _load_json(path: Path, default: Any) -> Any:
         return default
 
 
+def _append_validation_report_events(path: Path, reports: list[dict[str, Any]]) -> None:
+    """Append new Zeus report states without truncating historical evidence."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing: set[tuple[str, str, str, str]] = set()
+    if path.exists():
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if isinstance(row, dict):
+                    existing.add(_validation_report_event_key(row))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            # Do not overwrite a damaged evidence file.  Surface the failure so
+            # the caller cannot silently replace institutional history.
+            raise RuntimeError(f"Cannot safely append Zeus validation history: {path}")
+
+    with path.open("a", encoding="utf-8") as stream:
+        for report in reports:
+            key = _validation_report_event_key(report)
+            if key in existing:
+                continue
+            stream.write(json.dumps(report, ensure_ascii=True) + "\n")
+            existing.add(key)
+
+
+def _validation_report_event_key(report: dict[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        str(report.get("report_id") or report.get("candidate_id") or report.get("recommendation_id") or ""),
+        str(report.get("status") or ""),
+        str(report.get("lifecycle") or ""),
+        str(report.get("last_transition_at") or report.get("timestamp") or ""),
+    )
+
+
 def _fetch_sqlite_rows(db_path: Path, query: str) -> list[dict[str, Any]]:
     if not db_path.exists():
         return []
@@ -1098,9 +1133,10 @@ def write_prometheus_evolution_artifacts(root_dir: Path, intelligence: dict[str,
     zeus_status_path.write_text(json.dumps(validation_status, indent=2), encoding="utf-8")
 
     zeus_reports_path = ol / "zeus_validation_reports.jsonl"
-    with zeus_reports_path.open("w", encoding="utf-8") as f:
-        for row in validation_reports_snapshot:
-            f.write(json.dumps(row, ensure_ascii=True) + "\n")
+    _append_validation_report_events(
+        zeus_reports_path,
+        [row for row in validation_reports_snapshot if isinstance(row, dict)],
+    )
 
     return {
         "payload_path": str(payload_path.relative_to(root_dir)),

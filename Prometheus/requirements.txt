@@ -35,7 +35,7 @@ python-multipart>=0.0.6
 aiofiles>=23.0.0
 
 # UI layer
-streamlit>=1.27.0
+streamlit>=1.36.0
 streamlit-autorefresh>=1.0.1
 gradio>=4.0.0
 

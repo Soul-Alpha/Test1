@@ -31,7 +31,7 @@ Write-Host "  ──────────────────────
 if (-not $GradioOnly) {
     Write-Host "  Starting Streamlit  →  http://localhost:8501" -ForegroundColor Green
     $stArgs = @(
-        "run", "$DIR\ui\dashboard.py",
+        "run", "$DIR\ui\prometheus_command_center.py",
         "--server.headless", "true",
         "--server.port", "8501",
         "--server.fileWatcherType", "none"

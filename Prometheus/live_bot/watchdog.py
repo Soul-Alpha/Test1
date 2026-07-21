@@ -1,7 +1,8 @@
 """
-Prometheus Watchdog — supervises trader.py and both Streamlit dashboards.
+Prometheus Watchdog — supervises trader.py and three Streamlit command centres.
 
-Runs the trader plus the Prometheus dashboard and Zeus dashboard in parallel.
+Runs the trader plus the consolidated Prometheus, Hermes, and Olympus dashboard
+applications in parallel.
 Either process is restarted automatically on crash. An intentional stop
 (Stop button / Ctrl-C) exits everything.
 
@@ -32,8 +33,9 @@ from datetime import datetime, timezone
 _HERE         = pathlib.Path(__file__).parent
 _ROOT         = _HERE.parent                    # Prometheus/
 _TRADER       = _HERE / "trader.py"
-_DASHBOARD    = _ROOT / "ui" / "dashboard.py"
-_ZEUS_DASH    = _ROOT / "backtesting" / "zeus_dashboard.py"
+_PROMETHEUS_DASH = _ROOT / "ui" / "prometheus_command_center.py"
+_HERMES_DASH    = _ROOT / "ui" / "hermes_command_center.py"
+_OLYMPUS_DASH   = _ROOT / "ui" / "olympus_command_center.py"
 _VENV_PY      = pathlib.Path(sys.executable)   # same venv as watchdog
 
 STOP_FLAG        = _HERE / "stop_flag"          # trader.py reads this name
@@ -224,7 +226,7 @@ def run(
     if not _acquire_pid_lock():
         return   # another watchdog already running
 
-    log.info("Watchdog PID %d — supervising bot + dashboard.", os.getpid())
+    log.info("Watchdog PID %d — supervising bot + three command centres.", os.getpid())
 
     # Clear stale stop flags from a previous run.
     STOP_FLAG.unlink(missing_ok=True)
@@ -232,15 +234,22 @@ def run(
 
     bot_cmd = [str(_VENV_PY), str(_TRADER)] + trader_args
     dash_cmd = [
-        str(_VENV_PY), "-m", "streamlit", "run", str(_DASHBOARD),
+        str(_VENV_PY), "-m", "streamlit", "run", str(_PROMETHEUS_DASH),
         f"--server.port={dash_port}",
         "--server.headless=true",
         "--server.runOnSave=false",
         "--server.address=0.0.0.0",
     ]
-    zeus_cmd = [
-        str(_VENV_PY), "-m", "streamlit", "run", str(_ZEUS_DASH),
-        "--server.port=8502",
+    hermes_dash_cmd = [
+        str(_VENV_PY), "-m", "streamlit", "run", str(_HERMES_DASH),
+        "--server.port=8503",
+        "--server.headless=true",
+        "--server.runOnSave=false",
+        "--server.address=0.0.0.0",
+    ]
+    olympus_dash_cmd = [
+        str(_VENV_PY), "-m", "streamlit", "run", str(_OLYMPUS_DASH),
+        "--server.port=8511",
         "--server.headless=true",
         "--server.runOnSave=false",
         "--server.address=0.0.0.0",
@@ -273,10 +282,21 @@ def run(
         ),
         daemon=True,
     )
-    zeus_thread = threading.Thread(
+    hermes_dash_thread = threading.Thread(
         target=_supervise,
-        name="zeus-supervisor",
-        args=("zeus", zeus_cmd, _ROOT),
+        name="hermes-dashboard-supervisor",
+        args=("hermes-dashboard", hermes_dash_cmd, _ROOT),
+        kwargs=dict(
+            cooldown=cooldown,
+            crash_limit=dash_crash_limit,
+            crash_window=crash_window,
+        ),
+        daemon=True,
+    )
+    olympus_dash_thread = threading.Thread(
+        target=_supervise,
+        name="olympus-dashboard-supervisor",
+        args=("olympus-dashboard", olympus_dash_cmd, _ROOT),
         kwargs=dict(
             cooldown=cooldown,
             crash_limit=dash_crash_limit,
@@ -287,14 +307,16 @@ def run(
 
     bot_thread.start()
     dash_thread.start()
-    zeus_thread.start()
+    hermes_dash_thread.start()
+    olympus_dash_thread.start()
 
     try:
         # Main thread waits; Ctrl-C sets the stop event and lets threads finish.
         while (
             bot_thread.is_alive()
             or dash_thread.is_alive()
-            or zeus_thread.is_alive()
+            or hermes_dash_thread.is_alive()
+            or olympus_dash_thread.is_alive()
         ):
             time.sleep(1)
     except KeyboardInterrupt:
@@ -305,7 +327,8 @@ def run(
 
     bot_thread.join(timeout=30)
     dash_thread.join(timeout=30)
-    zeus_thread.join(timeout=30)
+    hermes_dash_thread.join(timeout=30)
+    olympus_dash_thread.join(timeout=30)
     WATCHDOG_PID_F.unlink(missing_ok=True)
     log.info("Watchdog exited.")
 

@@ -128,9 +128,9 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
 
 def cmd_ui(args: argparse.Namespace) -> None:
-    """Launch the Streamlit dashboard."""
+    """Launch the consolidated Prometheus Trading Command Center."""
     port = args.port or CONFIG.ui.port
-    dashboard = ROOT / "ui" / "dashboard.py"
+    dashboard = ROOT / "ui" / "prometheus_command_center.py"
 
     logger.info("Launching Streamlit UI at http://localhost:%s", port)
     subprocess.run(

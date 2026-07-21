@@ -48,8 +48,13 @@ if ($env:PROMETHEUS_TUNNEL_PORT) {
 }
 if ($PORT -eq 8511) {
     Write-Host '  Target Dashboard: Olympus Command Center (8511)' -ForegroundColor Green
+    $DASHBOARD_SCRIPT = 'ui\olympus_command_center.py'
+} elseif ($PORT -eq 8503) {
+    Write-Host '  Target Dashboard: Hermes Command Center (8503)' -ForegroundColor Green
+    $DASHBOARD_SCRIPT = 'ui\hermes_command_center.py'
 } else {
     Write-Host "  Target Dashboard: Prometheus (port $PORT)" -ForegroundColor Green
+    $DASHBOARD_SCRIPT = 'ui\prometheus_command_center.py'
 }
 
 # ─── Step 1: Validate cloudflared ────────────────────────────────────────────
@@ -66,7 +71,7 @@ if (-not (Test-PortListening $PORT)) {
 
     Start-Process -FilePath $STREAMLIT `
         -ArgumentList @(
-            'run', 'ui\dashboard.py',
+            'run', $DASHBOARD_SCRIPT,
             '--server.port',                  $PORT,
             '--server.address',               '127.0.0.1',
             '--server.headless',              'true',

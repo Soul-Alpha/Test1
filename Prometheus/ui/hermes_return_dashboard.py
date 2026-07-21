@@ -64,7 +64,6 @@ if not status:
     st.stop()
 
 analytics = _build_hermes_analytics_cached()
-    analytics = {}
 
 return_intel = status.get("return_intelligence") or analytics.get("return_intelligence", {})
 summary = return_intel.get("summary", {}) if isinstance(return_intel, dict) else {}

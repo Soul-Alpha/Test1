@@ -3,7 +3,7 @@
 # Usage: right-click -> Run with PowerShell  (or pin it to startup)
 
 $PYTHON = "c:\Users\Chaba\Documents\tradingBots\.venv\Scripts\python.exe"
-$SCRIPT = "ui\dashboard.py"
+$SCRIPT = "ui\prometheus_command_center.py"
 $DIR    = "c:\Users\Chaba\Documents\tradingBots\Prometheus"
 $PORT   = 8501
 $ERRLOG = "$DIR\live_bot\dashboard_err.log"

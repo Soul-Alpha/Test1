@@ -29,7 +29,7 @@ services:
   ui:
     image: prometheus-ai:latest
     container_name: prometheus-ui
-    command: streamlit run ui/dashboard.py --server.port 8501 --server.headless true
+    command: streamlit run ui/prometheus_command_center.py --server.port 8501 --server.headless true
     ports:
       - "8501:8501"
     volumes:

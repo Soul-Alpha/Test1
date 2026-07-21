@@ -1,11 +1,7 @@
 # =============================================================================
 # Prometheus - Full Stack Startup Script
-# Starts: Prometheus bot, Prometheus dashboard (8501), Zeus dashboard (8502),
-#         Hermes bot, Hermes dashboard (8503), Hermes Academy dashboard (8504),
-#         Hermes Return Intelligence dashboard (8505), Hermes Pattern Context dashboard (8506),
-#         Olympus Observability dashboard (8507), Prometheus Execution Academy dashboard (8508),
-#         Prometheus Academy Observability dashboard (8509), Prometheus Evolution dashboard (8510),
-#         Olympus Command Center (8511), and optional tunnels.
+# Starts: Prometheus bot, Hermes bot, three consolidated command centres, and
+#         optional tunnels. Legacy dashboards remain available as lazy pages.
 # Usage: powershell -ExecutionPolicy Bypass -File start_all.ps1
 # =============================================================================
 
@@ -124,24 +120,17 @@ if (-not $SkipBot) {
 }
 
 if (Test-PortFree 8501) {
-    $pids["prometheus_dash"] = Start-Dashboard -Name "Prometheus-Dash" -Script "ui\dashboard.py" -Port 8501 -Log (Join-Path $LogDir "prometheus_dash.log")
+    $pids["prometheus_command_center"] = Start-Dashboard -Name "Prometheus-Command-Center" -Script "ui\prometheus_command_center.py" -Port 8501 -Log (Join-Path $LogDir "prometheus_command_center.log")
     Start-Sleep -Seconds 3
 } else {
-    Write-Host "[Prometheus-Dash] Port 8501 already in use - skipping." -ForegroundColor Yellow
-}
-
-if (Test-PortFree 8502) {
-    $pids["zeus_dash"] = Start-Dashboard -Name "Zeus-Dash" -Script "backtesting\zeus_dashboard.py" -Port 8502 -Log (Join-Path $LogDir "zeus_dash.log")
-    Start-Sleep -Seconds 3
-} else {
-    Write-Host "[Zeus-Dash] Port 8502 already in use - skipping." -ForegroundColor Yellow
+    Write-Host "[Prometheus-Command-Center] Port 8501 already in use - skipping." -ForegroundColor Yellow
 }
 
 if (Test-PortFree 8503) {
-    $pids["hermes_dash"] = Start-Dashboard -Name "Hermes-Dash" -Script "ui\hermes_dashboard.py" -Port 8503 -Log (Join-Path $LogDir "hermes_dash.log")
+    $pids["hermes_command_center"] = Start-Dashboard -Name "Hermes-Command-Center" -Script "ui\hermes_command_center.py" -Port 8503 -Log (Join-Path $LogDir "hermes_command_center.log")
     Start-Sleep -Seconds 3
 } else {
-    Write-Host "[Hermes-Dash] Port 8503 already in use - skipping." -ForegroundColor Yellow
+    Write-Host "[Hermes-Command-Center] Port 8503 already in use - skipping." -ForegroundColor Yellow
 }
 
 if (-not $SkipHermesBot) {
@@ -156,57 +145,8 @@ if (-not $SkipHermesBot) {
     Start-Sleep -Seconds 2
 }
 
-if (Test-PortFree 8504) {
-    $pids["hermes_academy_dash"] = Start-Dashboard -Name "Hermes-Academy-Dash" -Script "ui\hermes_academy_dashboard.py" -Port 8504 -Log (Join-Path $LogDir "hermes_academy_dash.log")
-    Start-Sleep -Seconds 3
-} else {
-    Write-Host "[Hermes-Academy-Dash] Port 8504 already in use - skipping." -ForegroundColor Yellow
-}
-
-if (Test-PortFree 8505) {
-    $pids["hermes_return_dash"] = Start-Dashboard -Name "Hermes-Return-Dash" -Script "ui\hermes_return_dashboard.py" -Port 8505 -Log (Join-Path $LogDir "hermes_return_dash.log")
-    Start-Sleep -Seconds 3
-} else {
-    Write-Host "[Hermes-Return-Dash] Port 8505 already in use - skipping." -ForegroundColor Yellow
-}
-
-if (Test-PortFree 8506) {
-    $pids["hermes_pattern_context_dash"] = Start-Dashboard -Name "Hermes-Pattern-Context-Dash" -Script "ui\hermes_pattern_context_dashboard.py" -Port 8506 -Log (Join-Path $LogDir "hermes_pattern_context_dash.log")
-    Start-Sleep -Seconds 3
-} else {
-    Write-Host "[Hermes-Pattern-Context-Dash] Port 8506 already in use - skipping." -ForegroundColor Yellow
-}
-
-if (Test-PortFree 8507) {
-    $pids["olympus_observability_dash"] = Start-Dashboard -Name "Olympus-Observability-Dash" -Script "ui\olympus_observability_dashboard.py" -Port 8507 -Log (Join-Path $LogDir "olympus_observability_dash.log")
-    Start-Sleep -Seconds 3
-} else {
-    Write-Host "[Olympus-Observability-Dash] Port 8507 already in use - skipping." -ForegroundColor Yellow
-}
-
-if (Test-PortFree 8508) {
-    $pids["prometheus_execution_academy_dash"] = Start-Dashboard -Name "Prometheus-Execution-Academy-Dash" -Script "ui\prometheus_execution_academy_dashboard.py" -Port 8508 -Log (Join-Path $LogDir "prometheus_execution_academy_dash.log")
-    Start-Sleep -Seconds 3
-} else {
-    Write-Host "[Prometheus-Execution-Academy-Dash] Port 8508 already in use - skipping." -ForegroundColor Yellow
-}
-
-if (Test-PortFree 8509) {
-    $pids["prometheus_academy_observability_dash"] = Start-Dashboard -Name "Prometheus-Academy-Observability-Dash" -Script "ui\prometheus_academy_observability_dashboard.py" -Port 8509 -Log (Join-Path $LogDir "prometheus_academy_observability_dash.log")
-    Start-Sleep -Seconds 3
-} else {
-    Write-Host "[Prometheus-Academy-Observability-Dash] Port 8509 already in use - skipping." -ForegroundColor Yellow
-}
-
-if (Test-PortFree 8510) {
-    $pids["prometheus_evolution_dash"] = Start-Dashboard -Name "Prometheus-Evolution-Dash" -Script "ui\prometheus_evolution_dashboard.py" -Port 8510 -Log (Join-Path $LogDir "prometheus_evolution_dash.log")
-    Start-Sleep -Seconds 3
-} else {
-    Write-Host "[Prometheus-Evolution-Dash] Port 8510 already in use - skipping." -ForegroundColor Yellow
-}
-
 if (Test-PortFree 8511) {
-    $pids["knowledge_growth_dash"] = Start-Dashboard -Name "Olympus-Command-Center" -Script "ui\knowledge_growth_dashboard.py" -Port 8511 -Log (Join-Path $LogDir "knowledge_growth_dash.log")
+    $pids["olympus_command_center"] = Start-Dashboard -Name "Olympus-Command-Center" -Script "ui\olympus_command_center.py" -Port 8511 -Log (Join-Path $LogDir "olympus_command_center.log")
     Start-Sleep -Seconds 3
 } else {
     Write-Host "[Olympus-Command-Center] Port 8511 already in use - skipping." -ForegroundColor Yellow
@@ -216,7 +156,7 @@ if (-not $SkipTunnels) {
     if (-not (Test-Path $CF)) {
         Write-Host "[CF] cloudflared not found at $CF - skipping tunnels." -ForegroundColor Red
     } else {
-        foreach ($port in @(8501, 8502, 8503, 8504, 8505, 8506, 8507, 8508, 8509, 8510, 8511)) {
+        foreach ($port in @(8501, 8503, 8511)) {
             $pids["cf_$port"] = Start-Tunnel -Port $port -Log (Join-Path $LogDir "cf_$port.log")
             Start-Sleep -Seconds 2
         }
@@ -225,21 +165,13 @@ if (-not $SkipTunnels) {
         Start-Sleep -Seconds 20
 
         Write-Host "`n=== CLOUDFLARE PUBLIC URLS ===" -ForegroundColor Green
-        foreach ($port in @(8501, 8502, 8503, 8504, 8505, 8506, 8507, 8508, 8509, 8510, 8511)) {
+        foreach ($port in @(8501, 8503, 8511)) {
             $log = Join-Path $LogDir "cf_$port.log"
             $url = Get-Content $log -ErrorAction SilentlyContinue | Select-String "trycloudflare.com" | Select-Object -Last 1
             $name = @{
-                8501 = "Prometheus"
-                8502 = "Zeus"
-                8503 = "Hermes"
-                8504 = "Hermes Academy"
-                8505 = "Hermes Return Intelligence"
-                8506 = "Hermes Pattern Context"
-                8507 = "Olympus Observability"
-                8508 = "Prometheus Execution Academy"
-                8509 = "Prometheus Academy Observability"
-                8510 = "Prometheus Evolution"
-                8511 = "Olympus Command Center"
+                8501 = "Prometheus Trading Command Center"
+                8503 = "Hermes Execution and Learning Center"
+                8511 = "Olympus Governance and Research Center"
             }[$port]
             if ($url) {
                 Write-Host "$name ($port): $url" -ForegroundColor Yellow

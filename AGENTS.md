@@ -56,8 +56,10 @@ Prometheus/
 ├── api/                     # FastAPI REST server
 │   └── server.py
 │
-├── ui/                      # Streamlit dashboard
-│   └── dashboard.py
+├── ui/                      # Three lazy Streamlit command centres + compatibility pages
+│   ├── prometheus_command_center.py  # port 8501
+│   ├── hermes_command_center.py      # port 8503
+│   └── olympus_command_center.py     # port 8511
 │
 ├── backtesting/             # Walk-forward backtester
 │   └── backtester.py
@@ -101,7 +103,7 @@ All commands are run from the `Prometheus/` directory.
 # Start the FastAPI REST API (http://localhost:8000)
 python main.py serve
 
-# Launch the Streamlit dashboard (http://localhost:8501)
+# Launch the Prometheus Trading Command Center (http://localhost:8501)
 python main.py ui
 
 # Analyse a CSV file of OHLCV data
@@ -126,6 +128,11 @@ docker-compose up --build
 # API:  http://localhost:8000
 # UI:   http://localhost:8501
 ```
+
+The normal Windows full-stack startup launches only three dashboard processes:
+Prometheus on 8501, Hermes on 8503, and Olympus/Zeus on 8511. Legacy dashboard
+scripts remain lazy compatibility pages and must not be launched as separate
+normal-operation processes. See `Prometheus/DASHBOARD_CONSOLIDATION.md`.
 
 ---
 

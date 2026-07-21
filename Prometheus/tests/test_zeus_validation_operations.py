@@ -46,13 +46,28 @@ def test_zvo_dedupes_candidates_and_advances_lifecycle(tmp_path: Path) -> None:
 
     assert row["candidate_id"] == "pat-001"
     assert row["status"] == "passed"
-    assert row["approved_for_adoption"] is True
-    assert row["queue_state"] in ("Approved", "Completed")
-    assert row["lifecycle"] in ("validated", "active", "completed")
+    assert row["approved_for_adoption"] is False
+    assert row["queue_state"] == "Awaiting Operator Approval"
+    assert row["lifecycle"] == "awaiting_operator_approval"
+    assert row["operator_approval_status"] == "Awaiting Explicit Operator Approval"
     assert row["validation_gate_passed"] is True
     assert row["adoption_gate_passed"] is True
     assert row["statistical_confidence_result"] == "Passed"
     assert result["status"]["summary"]["adoption_gates_passed"] == 1
+
+
+def test_zvo_never_synthesizes_operator_approval(tmp_path: Path) -> None:
+    incoming = [_build_candidate(candidate_id="pat-no-auto-approval", sample_size=280)]
+
+    for _ in range(20):
+        result = run_zeus_validation_operations(root_dir=tmp_path, incoming_reports=incoming)
+
+    row = result["reports"][0]
+    assert row["adoption_gate_passed"] is True
+    assert row["approved_for_adoption"] is False
+    assert row.get("approved_at") in (None, "")
+    assert row["lifecycle"] != "operator_approved"
+    assert row["lifecycle"] != "active"
 
 
 def test_zvo_pauses_low_sample_candidates(tmp_path: Path) -> None:

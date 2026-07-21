@@ -24,12 +24,13 @@ def test_validation_lifecycle_order_preserves_operator_approval_gate():
         "candidate",
         "zeus_validation",
         "validated",
+        "awaiting_operator_approval",
         "operator_approved",
         "active",
         "monitoring",
         "retired",
     ]
-    assert order.index("operator_approved") < order.index("active")
+    assert order.index("awaiting_operator_approval") < order.index("operator_approved") < order.index("active")
 
 
 def test_mission_boundaries_keep_systems_independent():

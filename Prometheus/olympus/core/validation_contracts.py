@@ -26,6 +26,7 @@ class ValidationLifecycle(str, Enum):
     CANDIDATE = "candidate"
     ZEUS_VALIDATION = "zeus_validation"
     VALIDATED = "validated"
+    AWAITING_OPERATOR_APPROVAL = "awaiting_operator_approval"
     OPERATOR_APPROVED = "operator_approved"
     ACTIVE = "active"
     MONITORING = "monitoring"

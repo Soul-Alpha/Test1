@@ -30,7 +30,7 @@ import logging
 import pickle
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -426,7 +426,6 @@ class PatternLearner:
 
     def _build_model(self) -> Tuple[Any, Any]:
         """Instantiate the best available model."""
-        from typing import Any as _Any
         scaler = None
 
         if self.model_type == "xgboost" and XGB_AVAILABLE:

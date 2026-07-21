@@ -22,7 +22,8 @@ _DECISION_INTEL = _ROOT / "storage" / "olympus" / "prometheus_decision_intellige
 _ACADEMY_REPORT = _ROOT / "storage" / "olympus" / "prometheus_execution_academy_report.json"
 _RESEARCH_LIB = _ROOT / "storage" / "olympus" / "prometheus_research_library.jsonl"
 
-@st.cache_data(ttl=60)def _read_json(path: Path) -> dict[str, Any]:
+@st.cache_data(ttl=60)
+def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:

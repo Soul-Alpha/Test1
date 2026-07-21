@@ -277,24 +277,25 @@ def _advance_pipeline_step(item: dict[str, Any], now: datetime) -> tuple[bool, s
     gate_state = _sync_gate_fields(item)
     _record_transition(item, ValidationLifecycle.VALIDATED.value, "passed", "Validation pipeline completed.", now)
 
-    # Governance-preserving approval policy: approval != deployment.
-    if (
-        item.get("operator_approval_required", True)
-        and not bool(item.get("approved_for_adoption"))
-        and bool(gate_state.get("adoption_gate_passed"))
-    ):
-        item["approved_for_adoption"] = True
-        item["approved_at"] = _utc_str(now)
-        item["operator_approval_status"] = "Approved by Zeus Validation Operations Policy"
-        item["queue_state"] = "Approved"
-        item["lifecycle"] = ValidationLifecycle.OPERATOR_APPROVED.value
-        _record_transition(item, ValidationLifecycle.OPERATOR_APPROVED.value, "approved", "Policy-based institutional approval.", now)
-
-        item["lifecycle"] = ValidationLifecycle.ACTIVE.value
-        _record_transition(item, ValidationLifecycle.ACTIVE.value, "active", "Activated for optional downstream adoption.", now)
-    elif item.get("operator_approval_required", True):
-        item["operator_approval_status"] = "Pending Zeus Gate Thresholds"
+    # Zeus validates evidence; it must never impersonate an operator.  Passing
+    # every adoption gate ends in an explicit waiting state.  A separately
+    # authenticated operator workflow is the only authority allowed to create
+    # OPERATOR_APPROVED or ACTIVE transitions.
+    if item.get("operator_approval_required", True):
         item["approved_for_adoption"] = False
+        if bool(gate_state.get("adoption_gate_passed")):
+            item["operator_approval_status"] = "Awaiting Explicit Operator Approval"
+            item["queue_state"] = "Awaiting Operator Approval"
+            item["lifecycle"] = ValidationLifecycle.AWAITING_OPERATOR_APPROVAL.value
+            _record_transition(
+                item,
+                ValidationLifecycle.AWAITING_OPERATOR_APPROVAL.value,
+                "pending",
+                "Automated validation passed; explicit operator approval is required.",
+                now,
+            )
+        else:
+            item["operator_approval_status"] = "Pending Zeus Gate Thresholds"
     return True, "completed"
 
 

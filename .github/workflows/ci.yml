@@ -36,7 +36,17 @@ jobs:
             Pillow matplotlib mplfinance plotly \
             fastapi "uvicorn[standard]" python-multipart aiofiles \
             streamlit sqlalchemy "pydantic>=2.0.0" python-dotenv \
-            pytest pytest-asyncio httpx
+            pytest pytest-asyncio httpx ruff
+
+      # ── Repository-wide static safety gates ─────────────────────────────
+      - name: Compile all Python modules
+        run: python -m compileall -q Prometheus
+
+      - name: Critical static analysis
+        # trader.py has separately tracked execution-path F821 findings that
+        # require characterization before correction; do not change live
+        # behavior merely to satisfy lint. Syntax is still covered by compileall.
+        run: ruff check Prometheus --select E9,F63,F7,F82 --exclude Prometheus/live_bot/trader.py
 
       # ── Import smoke test ────────────────────────────────────────────────
       # Verifies that core modules can be imported without path injection issues
