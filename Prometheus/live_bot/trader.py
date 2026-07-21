@@ -51,7 +51,7 @@ try:
         Regime, RegimeState, RegimeClassifier, htf_alignment_score,
     )
     from live_bot.execution_quality import ExecutionQualityFilter, QualityResult
-    from storage.database import save_trade, init_db, list_trades
+    from storage.database import init_db, list_analyses, list_trades, save_trade
     _ARCH_MODULES_OK = True
 except Exception as _import_err:
     _ARCH_MODULES_OK = False
@@ -74,6 +74,7 @@ except Exception as _import_err:
     QualityResult           = None  # type: ignore[assignment,misc]
     save_trade              = None  # type: ignore[assignment]
     init_db                 = None  # type: ignore[assignment]
+    list_analyses           = None  # type: ignore[assignment]
     list_trades             = None  # type: ignore[assignment]
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -6452,6 +6453,12 @@ class PrometheusLiveBot:
 
             return update
 
+        if not callable(list_analyses):
+
+            logger.warning("DB fallback unavailable: storage.database.list_analyses is not loaded")
+
+            return update
+
 
 
         try:
@@ -6986,6 +6993,5 @@ if __name__ == "__main__":
     )
 
     bot.run()
-
 
 
