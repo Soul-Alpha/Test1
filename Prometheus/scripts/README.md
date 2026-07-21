@@ -14,7 +14,22 @@ This directory contains governed operational scripts for Prometheus.
 
 ## Active scripts
 
-*(none yet — add entries here as governed scripts are introduced)*
+### `notify_telegram_links.py`
+
+Sends a single plain-text message containing newly generated dashboard URLs to
+an operator-owned Telegram chat. It reads `TELEGRAM_BOT_TOKEN` and
+`TELEGRAM_CHAT_ID` from the process environment and never persists credentials.
+`start_all.ps1` invokes it automatically after Cloudflare quick tunnels are
+created. The operation is idempotent with respect to project state: it writes no
+repository, model, database, or trading files, though each invocation sends a
+new Telegram message.
+
+Safe dry run:
+
+```powershell
+python scripts\notify_telegram_links.py --dry-run `
+  --link "Prometheus=https://example.trycloudflare.com"
+```
 
 ## Archived scripts
 

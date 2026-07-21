@@ -84,6 +84,7 @@ function Test-PortFree {
 
 $statusFile = Join-Path $ROOT "live_bot\start_all_pids.json"
 $pids = @{}
+$publicLinks = @()
 
 Write-Host "[Recovery] Reconstructing institutional state from persisted artifacts..." -ForegroundColor Cyan
 try {
@@ -174,10 +175,32 @@ if (-not $SkipTunnels) {
                 8511 = "Olympus Governance and Research Center"
             }[$port]
             if ($url) {
-                Write-Host "$name ($port): $url" -ForegroundColor Yellow
-                $pids["cf_url_$port"] = "$url".Trim()
+                $urlMatch = [regex]::Match("$url", 'https://[A-Za-z0-9-]+\.trycloudflare\.com')
+                if (-not $urlMatch.Success) {
+                    Write-Host "$name ($port): malformed URL in tunnel log" -ForegroundColor Red
+                    continue
+                }
+                $cleanUrl = $urlMatch.Value
+                Write-Host "$name ($port): $cleanUrl" -ForegroundColor Yellow
+                $pids["cf_url_$port"] = $cleanUrl
+                $publicLinks += "$name=$cleanUrl"
             } else {
                 Write-Host "$name ($port): URL not yet available (check logs\cf_$port.log)" -ForegroundColor Red
+            }
+        }
+
+        if ($publicLinks.Count -gt 0) {
+            if ($env:TELEGRAM_BOT_TOKEN -and $env:TELEGRAM_CHAT_ID) {
+                $telegramArgs = @("scripts\notify_telegram_links.py")
+                foreach ($link in $publicLinks) {
+                    $telegramArgs += @("--link", $link)
+                }
+                & $PYTHON @telegramArgs
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "[Telegram] Dashboard link notification failed; see the message above." -ForegroundColor Red
+                }
+            } else {
+                Write-Host "[Telegram] Links not sent: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID." -ForegroundColor Yellow
             }
         }
     }
