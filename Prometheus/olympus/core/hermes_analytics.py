@@ -10,6 +10,10 @@ from typing import Any, Dict
 
 from olympus.contracts import EvidenceConfidenceContract, KnowledgeContract, SourceSystem
 from olympus.core.implementation_report_generator import write_olympus_implementation_report
+from olympus.core.historical_evidence import (
+    HistoricalEvidenceLedger,
+    build_evidence_readiness,
+)
 from olympus.core.intelligence_auditor import run_olympus_intelligence_auditor
 from olympus.core.pattern_context_intelligence import build_pattern_context_intelligence
 from olympus.core.return_intelligence import build_return_intelligence
@@ -369,6 +373,7 @@ def _metric_maturity(implemented: bool, sample_count: int, confidence_score: flo
 
 
 def _load_inputs(root_dir: Path) -> dict[str, Any]:
+    evidence_ledger = HistoricalEvidenceLedger(root_dir, source_system="hermes")
     return {
         "setups": _load_json(root_dir / "models" / "hermes" / "setups.json", []),
         "status": _load_json(root_dir / "live_bot" / "hermes_status.json", {}),
@@ -376,6 +381,7 @@ def _load_inputs(root_dir: Path) -> dict[str, Any]:
         "lineage": _load_jsonl(root_dir / "storage" / "olympus" / "event_lineage.jsonl"),
         "snapshots": _load_jsonl(root_dir / "storage" / "olympus" / "pattern_snapshots.jsonl"),
         "versions": _load_jsonl(root_dir / "storage" / "olympus" / "version_registry.jsonl"),
+        "evidence": evidence_ledger.records(),
     }
 
 
@@ -386,6 +392,7 @@ def build_hermes_analytics(root_dir: Path) -> dict[str, Any]:
     lineage: list[dict[str, Any]] = src["lineage"]
     snapshots: list[dict[str, Any]] = src["snapshots"]
     versions: list[dict[str, Any]] = src["versions"]
+    evidence: list[dict[str, Any]] = src["evidence"]
 
     ml_records = len(setups)
     market_snapshots = max(ml_records, len(snapshots))
@@ -403,16 +410,55 @@ def build_hermes_analytics(root_dir: Path) -> dict[str, Any]:
     if last_sig.get("signal_id"):
         sig_map[str(last_sig.get("signal_id"))] = last_sig
 
-    closed_trades = status.get("closed_trades") or []
-    open_trades = status.get("open_trades") or []
+    for event in evidence:
+        if event.get("event_type") != "prediction_created":
+            continue
+        payload = event.get("payload") or {}
+        signal_id = str(payload.get("signal_id") or event.get("entity_id") or "")
+        if signal_id:
+            sig_map[signal_id] = payload
+
+    closed_by_id = {
+        str(row.get("trade_id")): row
+        for row in status.get("closed_trades") or []
+        if row.get("trade_id")
+    }
+    open_by_id = {
+        str(row.get("trade_id")): row
+        for row in status.get("open_trades") or []
+        if row.get("trade_id")
+    }
+    for event in evidence:
+        payload = event.get("payload") or {}
+        trade_id = str(payload.get("trade_id") or event.get("entity_id") or "")
+        if not trade_id:
+            continue
+        if event.get("event_type") == "trade_opened":
+            open_by_id[trade_id] = payload
+        elif event.get("event_type") == "trade_closed":
+            closed_by_id[trade_id] = payload
+            open_by_id.pop(trade_id, None)
+
+    closed_trades = list(closed_by_id.values())
+    open_trades = list(open_by_id.values())
     skipped_trades = status.get("skipped_signals") or []
 
-    return_intelligence = status.get("return_intelligence") or build_return_intelligence(
-        closed_trades,
-        status=status,
-        feature_version=status.get("feature_version", "v1"),
-        model_version=str(status.get("ml", {}).get("model_version", "0")),
-        report_interval=10,
+    return_intelligence = (
+        build_return_intelligence(
+            closed_trades,
+            status=status,
+            feature_version=status.get("feature_version", "v1"),
+            model_version=str(status.get("ml", {}).get("model_version", "0")),
+            report_interval=10,
+        )
+        if closed_trades
+        else status.get("return_intelligence") or build_return_intelligence(
+            [],
+            status=status,
+            feature_version=status.get("feature_version", "v1"),
+            model_version=str(status.get("ml", {}).get("model_version", "0")),
+            report_interval=10,
+        )
     )
     return_summary = return_intelligence.get("summary", {}) if isinstance(return_intelligence, dict) else {}
     return_research_report = return_intelligence.get("research_report", {}) if isinstance(return_intelligence, dict) else {}
@@ -478,6 +524,17 @@ def build_hermes_analytics(root_dir: Path) -> dict[str, Any]:
             entered_ts_by_trade[tid] = ts
         elif et == "trade_closed":
             closed_ts_by_trade[tid] = ts
+
+    for event in evidence:
+        event_type = str(event.get("event_type", "") or "")
+        trade_id = str(event.get("entity_id", "") or "")
+        timestamp = _safe_iso_to_dt(event.get("occurred_at"))
+        if not trade_id or timestamp is None:
+            continue
+        if event_type == "trade_opened":
+            entered_ts_by_trade[trade_id] = timestamp
+        elif event_type == "trade_closed" and (event.get("payload") or {}).get("closed_at_quality") == "exact":
+            closed_ts_by_trade[trade_id] = timestamp
 
     # Completed prediction records are additive analytics projections over immutable history.
     completed_predictions: list[dict[str, Any]] = []
@@ -2405,6 +2462,7 @@ def build_hermes_analytics(root_dir: Path) -> dict[str, Any]:
             "olympus_audit_report": auditor_payload.get("audit_report", {}),
         },
     )
+    evidence_readiness = build_evidence_readiness(setups, evidence, status=status)
 
     analytics = {
         "audit": {
@@ -2415,10 +2473,12 @@ def build_hermes_analytics(root_dir: Path) -> dict[str, Any]:
                 "lineage": "storage/olympus/event_lineage.jsonl",
                 "pattern_snapshots": "storage/olympus/pattern_snapshots.jsonl",
                 "version_registry": "storage/olympus/version_registry.jsonl",
+                "historical_evidence": "storage/olympus/hermes_evidence.jsonl",
             },
             "inconsistencies": inconsistencies,
         },
         "metrics": metrics,
+        "evidence_readiness": evidence_readiness,
         "metric_knowledge_confidence": metric_knowledge_confidence,
         "pattern_intelligence": pattern_intelligence,
         "pattern_genome": pattern_genome,

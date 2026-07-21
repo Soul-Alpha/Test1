@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import pickle
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -273,6 +274,7 @@ class PatternLearner:
         self.model         = None
         self.scaler        = None
         self.records:       List[SetupRecord] = []
+        self._record_ids:   set[str] = set()
         self.pattern_stats: Dict[str, PatternStats] = {}
         self.model_version  = 0
 
@@ -286,11 +288,16 @@ class PatternLearner:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def add_setup(self, record: SetupRecord) -> None:
-        """Add a new setup to the training database."""
+    def add_setup(self, record: SetupRecord) -> bool:
+        """Add a setup unless its stable identity is already present."""
+        if record.setup_id in self._record_ids:
+            logger.debug("Duplicate setup ignored: %s", record.setup_id)
+            return False
         self.records.append(record)
+        self._record_ids.add(record.setup_id)
         self._save_records()
         logger.debug("Setup added: %s", record.setup_id)
+        return True
 
     def update_outcome(
         self,
@@ -499,7 +506,18 @@ class PatternLearner:
 
     def _save_records(self) -> None:
         data = [asdict(r) for r in self.records]
-        self._db_path.write_text(json.dumps(data, indent=2, default=str))
+        self._atomic_write_text(self._db_path, json.dumps(data, indent=2, default=str))
+
+    @staticmethod
+    def _atomic_write_text(path: Path, content: str) -> None:
+        """Replace a JSON artifact atomically so interruption cannot truncate it."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
 
     def _load_records(self) -> None:
         if self._db_path.exists():
@@ -513,6 +531,7 @@ class PatternLearner:
                     SetupRecord(**{k: v for k, v in d.items() if k in valid_fields})
                     for d in data
                 ]
+                self._record_ids = {record.setup_id for record in self.records}
                 logger.info("Loaded %d setup records", len(self.records))
             except Exception as e:
                 logger.warning("Could not load setup records: %s", e)
@@ -535,7 +554,7 @@ class PatternLearner:
 
     def _save_stats(self) -> None:
         data = {k: asdict(v) for k, v in self.pattern_stats.items()}
-        self._stats_path.write_text(json.dumps(data, indent=2))
+        self._atomic_write_text(self._stats_path, json.dumps(data, indent=2))
 
     def _load_stats(self) -> None:
         if self._stats_path.exists():

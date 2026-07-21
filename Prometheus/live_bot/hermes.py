@@ -12,7 +12,7 @@ import os
 import sys
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -38,6 +38,11 @@ from engines.market_structure import StructureType
 from olympus.contracts import ExecutionType, SourceSystem
 from olympus.core.config import OlympusCoreConfig
 from olympus.core.hermes_analytics import build_hermes_analytics
+from olympus.core.historical_evidence import (
+    HistoricalEvidenceLedger,
+    load_runtime_status,
+    stable_evidence_id,
+)
 from olympus.core.identity import SystemIdentity
 from olympus.core.isolation import IsolationGuard, IsolationPolicy
 from olympus.core.lineage import EventType, append_lineage_event, build_event
@@ -275,6 +280,10 @@ class HermesBot:
 
         self.engine = Prometheus()
         self.learner = PatternLearner(model_dir=str(HERMES_MODEL_DIR), min_samples_train=50)
+        self._evidence_ledger = HistoricalEvidenceLedger(_ROOT, source_system=HERMES_SOURCE_SYSTEM)
+        previous_status = load_runtime_status(HERMES_STATUS_FILE)
+        if previous_status:
+            self._evidence_ledger.ingest_runtime_status(previous_status)
 
         self._status: dict[str, Any] = {
             "bot": "Hermes",
@@ -304,13 +313,14 @@ class HermesBot:
         }
         self._open_trades: list[HermesTrade] = []
         self._closed_trades: list[HermesTrade] = []
+        self._restore_historical_evidence()
         self._last_signal: Optional[HermesSignal] = None
         self._symbol_selected = False
         self._bootstrap_done = False
         self._last_df = None
         self._last_feature_meta: dict = {}
         self._return_report_interval = max(5, int(os.getenv("HERMES_RETURN_REPORT_INTERVAL", "10") or 10))
-        self._last_return_report_closed_count = 0
+        self._last_return_report_closed_count = len(self._closed_trades)
         self._research_repository = ResearchRepository(_ROOT)
 
         # Register the currently loaded model/version as metadata only.
@@ -319,6 +329,40 @@ class HermesBot:
         # Write an initial status file immediately so the dashboard doesn't
         # show "status file not found" while the first poll is in progress.
         self._write_status()
+
+    def _evidence_metadata(self) -> dict[str, Any]:
+        return {
+            "asset": self.asset,
+            "timeframe": self.timeframe,
+            "execution_type": self._execution_type,
+            "model_version": str(getattr(self.learner, "model_version", 0)),
+            "feature_version": FEATURE_VERSION,
+            "strategy_version": HERMES_STRATEGY_VERSION,
+            "dataset_generation": HERMES_DATASET_GENERATION,
+        }
+
+    def _restore_historical_evidence(self) -> None:
+        """Restore paper-trade continuity from the append-only evidence ledger."""
+        valid_fields = {item.name for item in fields(HermesTrade)}
+        open_rows, closed_rows = self._evidence_ledger.trade_state()
+
+        def _restore(rows: list[dict[str, Any]]) -> list[HermesTrade]:
+            restored: list[HermesTrade] = []
+            for row in rows:
+                try:
+                    restored.append(HermesTrade(**{key: value for key, value in row.items() if key in valid_fields}))
+                except (TypeError, ValueError) as exc:
+                    logger.warning("Historical Hermes trade could not be restored: %s", exc)
+            return restored
+
+        self._open_trades = _restore(open_rows)
+        self._closed_trades = _restore(closed_rows)
+        if self._open_trades or self._closed_trades:
+            logger.info(
+                "Restored Hermes evidence: %d open, %d closed trades",
+                len(self._open_trades),
+                len(self._closed_trades),
+            )
 
     def _emit_lineage_event(self, event_type: EventType, payload: Optional[dict[str, Any]] = None) -> None:
         try:
@@ -847,6 +891,7 @@ class HermesBot:
             signal_confidence=float(sig.confidence),
         )
         self._open_trades.append(trade)
+        self._evidence_ledger.append_trade_opened(asdict(trade), self._evidence_metadata())
         return trade
 
     def _manage_paper_trades(self, df) -> None:
@@ -877,8 +922,24 @@ class HermesBot:
                 self._finalize_return_fields(trade)
                 self._open_trades.remove(trade)
                 self._closed_trades.append(trade)
+                closed_at = datetime.now(timezone.utc).isoformat()
+                self._evidence_ledger.append_trade_closed(
+                    asdict(trade),
+                    closed_at=closed_at,
+                    metadata=self._evidence_metadata(),
+                )
                 self.learner.update_outcome(trade.signal_id, 1 if trade.pnl > 0 else 0, rr=(trade.realized_distance_pts / max(1.0, trade.predicted_distance_pts)), exit_price=last_close)
-                self._emit_lineage_event(EventType.TRADE_CLOSED, {"trade_id": trade.trade_id, "status": trade.status, "pnl": trade.pnl})
+                self._emit_lineage_event(
+                    EventType.TRADE_CLOSED,
+                    {
+                        "trade_id": trade.trade_id,
+                        "signal_id": trade.signal_id,
+                        "status": trade.status,
+                        "pnl": trade.pnl,
+                        "exit_reason": trade.exit_reason,
+                        "closed_at": closed_at,
+                    },
+                )
                 self._emit_lineage_event(EventType.PATTERN_LEARNED, {"signal_id": trade.signal_id})
                 self._emit_lineage_event(EventType.ML_UPDATED, {"model_version": str(getattr(self.learner, "model_version", 0))})
 
@@ -964,6 +1025,8 @@ class HermesBot:
 
         try:
             lrn_stats = build_hermes_analytics(_ROOT)
+            self._status["evidence_readiness"] = lrn_stats.get("evidence_readiness", {})
+            self._status["evidence_ledger_error"] = self._evidence_ledger.last_error
             self._status["learning_intelligence"] = lrn_stats.get("metrics", {})
             self._status["pattern_intelligence"] = lrn_stats.get("pattern_intelligence", {})
             self._status["cluster_intelligence"] = lrn_stats.get("cluster_intelligence", [])
@@ -1100,6 +1163,7 @@ class HermesBot:
         if self._bootstrap_done or not self.simulate_bootstrap or pd is None or df is None or len(df) < 200:
             return
         # Lightweight historical bootstrap: create labeled setups from recent slices.
+        added_count = 0
         for i in range(80, min(len(df) - 12, 220), 4):
             window = df.iloc[: i + 1]
             future = df.iloc[i + 1 : i + 13]
@@ -1110,6 +1174,17 @@ class HermesBot:
             if not result or not result.confluence:
                 continue
             rec = self._build_setup_record(result)
+            bar_time = window.index[-1]
+            bar_timestamp = bar_time.isoformat() if hasattr(bar_time, "isoformat") else str(bar_time)
+            rec.timestamp = bar_timestamp
+            rec.setup_id = stable_evidence_id(
+                "hermes_bootstrap_setup",
+                self.asset,
+                self.timeframe,
+                bar_timestamp,
+                HERMES_STRATEGY_VERSION,
+                FEATURE_VERSION,
+            )
             direction = str(result.confluence.direction or "sideways").lower()
             if direction not in ("bullish", "bearish"):
                 continue
@@ -1122,13 +1197,15 @@ class HermesBot:
             won = int((direction == "bullish" and move_up > move_down and move_up >= 20.0) or (direction == "bearish" and move_down > move_up and move_down >= 20.0))
             rec.outcome = won
             rec.rr_achieved = expected / 20.0 if expected > 0 else 0.0
-            self.learner.add_setup(rec)
-            self._emit_lineage_event(EventType.SIMULATION_CREATED, {"setup_id": rec.setup_id, "outcome": won})
-        try:
-            self.learner.train()
-            self._emit_lineage_event(EventType.ML_UPDATED, {"train_source": "bootstrap"})
-        except Exception as exc:
-            logger.debug("Hermes bootstrap training skipped: %s", exc)
+            if self.learner.add_setup(rec):
+                added_count += 1
+                self._emit_lineage_event(EventType.SIMULATION_CREATED, {"setup_id": rec.setup_id, "outcome": won})
+        if added_count:
+            try:
+                self.learner.train()
+                self._emit_lineage_event(EventType.ML_UPDATED, {"train_source": "bootstrap"})
+            except Exception as exc:
+                logger.debug("Hermes bootstrap training skipped: %s", exc)
         self._bootstrap_done = True
 
     def poll_once(self) -> dict[str, Any]:
@@ -1152,6 +1229,7 @@ class HermesBot:
         record = self._build_setup_record(result)
         signal = self._predict_signal(result, record)
         self._last_signal = signal
+        self._evidence_ledger.append_prediction(asdict(signal), self._evidence_metadata())
         self._append_pattern_snapshot(result, signal)
         self._emit_lineage_event(EventType.PREDICTION_CREATED, {"signal_id": signal.signal_id, "direction": signal.direction, "confidence": signal.confidence})
         self._status["stats"]["signals_seen"] += 1

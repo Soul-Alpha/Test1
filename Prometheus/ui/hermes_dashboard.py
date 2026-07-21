@@ -168,6 +168,7 @@ pctx_profiles = pctx.get("context_profiles", []) if isinstance(pctx, dict) else 
 pctx_library = pctx.get("pattern_context_library", []) if isinstance(pctx, dict) else []
 tli = status.get("trade_lifecycle_intelligence", {}) or {}
 idip = status.get("idip", {}) or {}
+evidence_readiness = status.get("evidence_readiness", {}) or live_analytics.get("evidence_readiness", {}) or {}
 
 hermes_version = identity.get("build_version") or identity.get("model_version") or "v2.0"
 
@@ -246,6 +247,29 @@ _ex3.metric("ML Confidence",    f"{avg_conf:.2f}",                              
 _ex4.metric("Academy Stage",    journey.get("current_stage", "Observer"),      help="Current Hermes learning stage in institutional academy")
 _ex5.metric("Learning Health",  learning_health,                                help="Excellent ≥70% accuracy · Good ≥55% · Developing <55%")
 _ex6.metric("Pattern Diversity",pattern_diversity,                              help="High ≥50 unique sequences · Moderate ≥15 · Low <15")
+
+readiness_summary = evidence_readiness.get("summary", {}) or {}
+readiness_families = evidence_readiness.get("families", {}) or {}
+if readiness_families:
+    with st.expander("Historical Evidence Readiness", expanded=False):
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Ready Families", f"{readiness_summary.get('ready_families', 0)}/{readiness_summary.get('total_families', 0)}")
+        r2.metric("Readiness", f"{float(readiness_summary.get('readiness_pct', 0.0) or 0.0):.1f}%")
+        r3.metric("Labeled Setups", int(readiness_summary.get("labeled_setups", 0) or 0))
+        r4.metric("Closed Evidence", int(readiness_summary.get("closed_trade_records", 0) or 0))
+        readiness_rows = [
+            {
+                "metric_family": name.replace("_", " ").title(),
+                "status": details.get("status", "unknown"),
+                "samples": details.get("sample_count", 0),
+                "minimum": details.get("minimum_required", 0),
+                "stage": details.get("sample_stage", "unknown"),
+                "missing_fields": ", ".join(details.get("missing_fields", []) or []),
+                "source": details.get("source", "unknown"),
+            }
+            for name, details in readiness_families.items()
+        ]
+        st.dataframe(pd.DataFrame(readiness_rows), use_container_width=True, hide_index=True)
 
 # ── Bottleneck surfacing ──────────────────────────────────────────────────────
 _bottleneck = journey.get("bottleneck_dimension")
