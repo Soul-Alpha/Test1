@@ -200,3 +200,68 @@ def test_missing_read_does_not_create_database(tmp_path: Path) -> None:
     ledger = ExecutionBenchmarkLedger(tmp_path / "missing.sqlite3")
     assert ledger.candidates() == []
     assert not ledger.path.exists()
+
+
+def test_concurrent_exact_replay_commits_once(tmp_path: Path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    c = candidate()
+    ledger = ledger_at(tmp_path, c)
+    row = observation(c)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: ledger.append(row), range(8)))
+    assert sum(results) == 1
+    assert len(ledger.observations(c.source_system, c.candidate_id)) == 1
+
+
+def test_cli_registration_import_and_report(tmp_path: Path, monkeypatch, capsys) -> None:
+    from dataclasses import asdict
+    from olympus.core.execution_benchmark_cli import main
+
+    database = tmp_path / "benchmark.sqlite3"
+    c = candidate()
+    candidate_file = tmp_path / "candidate.json"
+    candidate_file.write_text(json.dumps(asdict(c)), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["benchmark", "--database", str(database),
+                                    "register", str(candidate_file)])
+    main()
+    assert json.loads(capsys.readouterr().out)["candidate_fingerprint"] == candidate_fingerprint(c)
+    observations_file = tmp_path / "outcomes.jsonl"
+    observations_file.write_text(json.dumps(asdict(observation(c))) + "\n", encoding="utf-8")
+    for expected in ({"added": 1, "exact_replays": 0}, {"added": 0, "exact_replays": 1}):
+        monkeypatch.setattr("sys.argv", ["benchmark", "--database", str(database),
+                                        "observe", str(observations_file)])
+        main()
+        assert json.loads(capsys.readouterr().out) == expected
+    monkeypatch.setattr("sys.argv", ["benchmark", "--database", str(database), "report",
+                                    "--source", "hermes", "--candidate", c.candidate_id,
+                                    "--start", START, "--end", END])
+    main()
+    result = json.loads(capsys.readouterr().out)
+    assert result["no_auto_adopt"] is True
+    assert result["stages"][1]["net_pnl"] == 10.0
+
+
+def test_benchmark_section_renders_empty_and_populated_ledgers(tmp_path: Path) -> None:
+    from streamlit.testing.v1 import AppTest
+
+    script = (
+        "from pathlib import Path\n"
+        "from ui.execution_benchmark_section import render_execution_benchmark\n"
+        f"render_execution_benchmark(Path({str(tmp_path)!r}))\n"
+    )
+    app = AppTest.from_string(script).run(timeout=20)
+    assert not app.exception
+    assert "No benchmark candidates" in app.info[0].value
+    assert not (tmp_path / "storage").exists()
+
+    from config import CONFIG
+    ledger = ExecutionBenchmarkLedger(
+        tmp_path / "storage" / "olympus" / CONFIG.execution_benchmark.database_name
+    )
+    c = candidate()
+    ledger.register(c)
+    ledger.append(observation(c))
+    app = AppTest.from_string(script).run(timeout=20)
+    assert not app.exception
+    assert len(app.dataframe) == 3
