@@ -1,6 +1,7 @@
 """Read-only benchmark section within the existing Zeus workspace."""
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import asdict
 from datetime import UTC, datetime, time, timedelta
@@ -48,9 +49,16 @@ def render_execution_benchmark(root: Path) -> None:
         st.warning("Drawdown uses closed trades only. Open-position risk and statistical uncertainty "
                    "require separate validation. Metrics cover complete observations only; missing "
                    "fields block evidence checks. Empty blockers do not authorize live trading.")
+        with st.expander("Recorded signal evidence in this decision window"):
+            observations = ledger.observations(source, candidate_id)
+            begin = datetime.combine(start, time.min, UTC)
+            finish = datetime.combine(end, time.min, UTC)
+            st.dataframe([asdict(row) for row in observations
+                          if begin <= datetime.fromisoformat(row.decision_at.replace("Z", "+00:00")) < finish],
+                         use_container_width=True)
         with st.expander("Frozen parameters and limits"):
             st.json(asdict(candidate))
-        st.download_button("Download benchmark report", data=__import__("json").dumps(
+        st.download_button("Download benchmark report", data=json.dumps(
             result.as_dict(), indent=2, allow_nan=False),
             file_name="zeus-execution-benchmark.json", mime="application/json",
             key="benchmark_download")
