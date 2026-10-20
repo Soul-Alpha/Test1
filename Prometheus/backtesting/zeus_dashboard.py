@@ -836,6 +836,10 @@ validation_queue_df = _build_queue_df(
 )
 evidence_df = _build_evidence_df(validation_reports, validation_modes_selected, validation_search)
 
+with st.expander("Backtest → paper → live benchmark", expanded=False):
+    from ui.execution_benchmark_section import render_execution_benchmark
+    render_execution_benchmark(_ROOT)
+
 st.markdown("### Institutional Validation Overview")
 vo1, vo2, vo3, vo4 = st.columns(4)
 with vo1:
