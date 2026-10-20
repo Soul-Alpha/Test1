@@ -146,6 +146,16 @@ class UIConfig:
 
 
 @dataclass
+class ExecutionBenchmarkConfig:
+    """Storage and policy defaults for observational Zeus comparisons.
+
+    Limits must be explicitly supplied in each frozen candidate; these settings
+    do not authorize live execution or modify the legacy validation policy.
+    """
+    database_name: str = "execution_benchmark.sqlite3"
+
+
+@dataclass
 class PrometheusConfig:
     """Master configuration object."""
 
@@ -166,6 +176,8 @@ class PrometheusConfig:
     backtest:          BacktestConfig         = field(default_factory=BacktestConfig)
     api:               APIConfig              = field(default_factory=APIConfig)
     ui:                UIConfig               = field(default_factory=UIConfig)
+
+    execution_benchmark: ExecutionBenchmarkConfig = field(default_factory=ExecutionBenchmarkConfig)
 
     # ── Storage ───────────────────────────────
     database_url: str = f"sqlite:///{STORAGE_DIR}/prometheus.db"
